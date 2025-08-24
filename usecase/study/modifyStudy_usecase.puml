@@ -1,0 +1,75 @@
+@startuml
+' 스터디 운영 - 정보 수정 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "스터디 리더" as Leader
+actor "시스템 관리자(옵션)" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "파일 스토리지" as Storage
+actor "검색 인덱서" as SearchIdx
+
+' === System Boundary ===
+rectangle "스터디 운영 - 정보 수정" as StudyEdit {
+
+  ' 메인 UC
+  usecase "스터디 정보 수정" as UC_Edit
+
+  ' 항상 수행되는 교차 관심사 (include)
+  usecase "권한/자격 검증\n(리더·관리자 권한)" as UC_Authz
+  usecase "정책/내용 검증\n(금지어·길이·권한)" as UC_Validate
+  usecase "동시 수정 충돌 해결\n(버전 체크/Merge)" as UC_Concurrency
+  usecase "태그/지역 표준화" as UC_Normalize
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+  usecase "검색 인덱스 갱신" as UC_Reindex
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "커버 이미지/파일 업로드" as UC_Upload
+  usecase "민감 필드 변경 승인\n(공개범위/정원/리더 교체 등)" as UC_AdminApprove
+  usecase "변경 이력/롤백" as UC_Versioning
+  usecase "일정 변경 안내" as UC_ScheduleNotify
+}
+
+' === 주 실행자 ===
+Leader --> UC_Edit
+Admin --> UC_AdminApprove
+
+' === include 관계 ===
+UC_Edit ..> UC_Authz       : <<include>>
+UC_Edit ..> UC_Validate    : <<include>>
+UC_Edit ..> UC_Concurrency : <<include>>
+UC_Edit ..> UC_Normalize   : <<include>>
+UC_Edit ..> UC_Audit       : <<include>>
+UC_Edit ..> UC_Notify      : <<include>>
+UC_Edit ..> UC_Reindex     : <<include>>
+
+' === extend 관계 ===
+UC_Edit ..> UC_Upload        : <<extend>>     '이미지 변경 시
+UC_Edit ..> UC_AdminApprove  : <<extend>>     '정책상 승인 필요 시
+UC_Edit ..> UC_Versioning    : <<extend>>     '이력 조회/복구 시
+UC_Edit ..> UC_ScheduleNotify: <<extend>>     '일정 수정 시 참가자 공지
+
+' === 외부 시스템 연동 ===
+Storage  <-- UC_Upload
+Audit    <-- UC_Audit
+Noti     <-- UC_Notify
+SearchIdx <-- UC_Reindex
+
+' === Notes ===
+note right of UC_Edit
+«requires auth»
+수정 가능 항목 예:
+- 제목/설명/태그/지역/모집 정원/공개범위
+- 커버 이미지/파일
+- 일정(세션) 정보
+정책에 따라 일부 변경은 관리자 승인 필요
+end note
+
+@enduml

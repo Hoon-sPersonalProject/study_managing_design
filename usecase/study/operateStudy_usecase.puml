@@ -1,0 +1,104 @@
+@startuml
+' 스터디 운영 - 참가자 관리 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "스터디 리더" as Leader
+actor "스터디 일반 회원" as Member
+actor "시스템 관리자(옵션)" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+
+' === System Boundary ===
+rectangle "스터디 운영 - 참가자 관리" as ParticipantMgmt {
+
+  ' --- 메인 UC ---
+  usecase "참가 신청 승인" as UC_Approve
+  usecase "참가 신청 거절" as UC_Reject
+  usecase "참가자 추방" as UC_Remove
+  usecase "대기자 관리" as UC_Waitlist
+  usecase "참가자 역할 변경\n(일반↔부리더)" as UC_RoleChange
+  usecase "참가자 현황 조회" as UC_View
+
+  ' --- 공통(항상 수행) ---
+  usecase "권한/자격 검증" as UC_Authz
+  usecase "정책/제한 검증\n(정원/차단/중복)" as UC_Validate
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+
+  ' --- 조건부/선택(extend) ---
+  usecase "자동 승인/자동 거절" as UC_AutoDecision
+  usecase "재참가 제한 규칙 적용" as UC_RejoinRule
+  usecase "신고 연계 제재" as UC_ReportBlock
+}
+
+' === 실행자 연결 ===
+Leader --> UC_Approve
+Leader --> UC_Reject
+Leader --> UC_Remove
+Leader --> UC_Waitlist
+Leader --> UC_RoleChange
+Leader --> UC_View
+
+Admin --> UC_Remove
+Admin --> UC_RoleChange
+Admin --> UC_ReportBlock
+
+Member --> UC_View
+
+' === include: 공통 교차 관심사 ===
+UC_Approve ..> UC_Authz : <<include>>
+UC_Approve ..> UC_Validate : <<include>>
+UC_Approve ..> UC_Audit : <<include>>
+UC_Approve ..> UC_Notify : <<include>>
+
+UC_Reject ..> UC_Authz : <<include>>
+UC_Reject ..> UC_Validate : <<include>>
+UC_Reject ..> UC_Audit : <<include>>
+UC_Reject ..> UC_Notify : <<include>>
+
+UC_Remove ..> UC_Authz : <<include>>
+UC_Remove ..> UC_Validate : <<include>>
+UC_Remove ..> UC_Audit : <<include>>
+UC_Remove ..> UC_Notify : <<include>>
+
+UC_Waitlist ..> UC_Authz : <<include>>
+UC_Waitlist ..> UC_Validate : <<include>>
+UC_Waitlist ..> UC_Audit : <<include>>
+UC_Waitlist ..> UC_Notify : <<include>>
+
+UC_RoleChange ..> UC_Authz : <<include>>
+UC_RoleChange ..> UC_Validate : <<include>>
+UC_RoleChange ..> UC_Audit : <<include>>
+UC_RoleChange ..> UC_Notify : <<include>>
+
+UC_View ..> UC_Authz : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_AutoDecision ..> UC_Approve : <<extend>>
+UC_AutoDecision ..> UC_Reject : <<extend>>
+UC_RejoinRule ..> UC_Remove : <<extend>>
+UC_ReportBlock ..> UC_Remove : <<extend>>
+
+' === 외부 시스템 연동 ===
+UC_Notify --> Noti
+UC_Audit --> Audit
+
+' === Notes ===
+note right of ParticipantMgmt
+«requires auth»
+핵심 규칙:
+- 리더만 승인/거절/추방 가능
+- 관리자(Admin)는 비상 시 개입
+- 승인/거절/추방 시 반드시 알림과 로그 기록
+- 자동 승인/거절 정책이 설정된 경우 확장 실행
+end note
+
+'note on link Member --> UC_View : 자신 기준 현황 조회
+
+@enduml

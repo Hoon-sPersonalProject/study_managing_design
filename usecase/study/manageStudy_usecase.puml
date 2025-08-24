@@ -1,0 +1,138 @@
+@startuml
+' 스터디 운영 - 일정/공지 관리 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "스터디 리더" as Leader
+actor "시스템 관리자(옵션)" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "파일 스토리지" as Storage
+actor "외부 캘린더" as Calendar
+actor "검색 인덱서" as SearchIdx
+
+' === System Boundary ===
+rectangle "스터디 운영 - 일정/공지 관리" as SchedNotice {
+
+  ' --- 일정 관리 ---
+  usecase "일정 생성" as UC_SCreate
+  usecase "일정 수정" as UC_SEdit
+  usecase "일정 취소/삭제" as UC_SCancel
+
+  ' --- 공지 관리 ---
+  usecase "공지 게시" as UC_NPost
+  usecase "공지 수정" as UC_NEdit
+  usecase "공지 삭제/아카이브" as UC_NArchive
+  usecase "공지 고정/해제(핀)" as UC_NPin
+
+  ' --- 공통(항상 수행) ---
+  usecase "권한/자격 검증" as UC_Authz
+  usecase "정책/내용 검증" as UC_Validate
+  usecase "동시 수정 충돌 해결\n(버전 체크)" as UC_Concurrency
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+  usecase "검색 인덱스 갱신" as UC_Reindex
+
+  ' --- 조건부/선택(extend) ---
+  usecase "반복 일정 설정" as UC_Repeat
+  usecase "일정 리마인더 설정" as UC_Reminder
+  usecase "외부 캘린더 동기화" as UC_CalSync
+  usecase "파일/이미지 첨부 업로드" as UC_Upload
+  usecase "@멘션/태그 처리" as UC_Mention
+}
+
+' === 실행자 연결 ===
+Leader --> UC_SCreate
+Leader --> UC_SEdit
+Leader --> UC_SCancel
+Leader --> UC_NPost
+Leader --> UC_NEdit
+Leader --> UC_NArchive
+Leader --> UC_NPin
+
+Admin --> UC_SEdit
+Admin --> UC_SCancel
+Admin --> UC_NEdit
+Admin --> UC_NArchive
+Admin --> UC_NPin
+
+' === include: 공통 교차 관심사 ===
+UC_SCreate ..> UC_Authz : <<include>>
+UC_SCreate ..> UC_Validate : <<include>>
+UC_SCreate ..> UC_Concurrency : <<include>>
+UC_SCreate ..> UC_Audit : <<include>>
+UC_SCreate ..> UC_Notify : <<include>>
+UC_SCreate ..> UC_Reindex : <<include>>
+
+UC_SEdit ..> UC_Authz : <<include>>
+UC_SEdit ..> UC_Validate : <<include>>
+UC_SEdit ..> UC_Concurrency : <<include>>
+UC_SEdit ..> UC_Audit : <<include>>
+UC_SEdit ..> UC_Notify : <<include>>
+UC_SEdit ..> UC_Reindex : <<include>>
+
+UC_SCancel ..> UC_Authz : <<include>>
+UC_SCancel ..> UC_Audit : <<include>>
+UC_SCancel ..> UC_Notify : <<include>>
+UC_SCancel ..> UC_Reindex : <<include>>
+
+UC_NPost ..> UC_Authz : <<include>>
+UC_NPost ..> UC_Validate : <<include>>
+UC_NPost ..> UC_Audit : <<include>>
+UC_NPost ..> UC_Notify : <<include>>
+UC_NPost ..> UC_Reindex : <<include>>
+
+UC_NEdit ..> UC_Authz : <<include>>
+UC_NEdit ..> UC_Validate : <<include>>
+UC_NEdit ..> UC_Concurrency : <<include>>
+UC_NEdit ..> UC_Audit : <<include>>
+UC_NEdit ..> UC_Notify : <<include>>
+UC_NEdit ..> UC_Reindex : <<include>>
+
+UC_NArchive ..> UC_Authz : <<include>>
+UC_NArchive ..> UC_Audit : <<include>>
+UC_NArchive ..> UC_Notify : <<include>>
+UC_NArchive ..> UC_Reindex : <<include>>
+
+UC_NPin ..> UC_Authz : <<include>>
+UC_NPin ..> UC_Audit : <<include>>
+UC_NPin ..> UC_Notify : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_SCreate ..> UC_Repeat : <<extend>>      '반복 일정 필요 시
+UC_SCreate ..> UC_Reminder : <<extend>>     '리마인더 설정 시
+UC_SCreate ..> UC_CalSync : <<extend>>      '외부 캘린더 연동 시
+UC_SCreate ..> UC_Upload : <<extend>>       '첨부 필요 시
+
+UC_SEdit ..> UC_Repeat : <<extend>>         '반복 규칙 변경
+UC_SEdit ..> UC_Reminder : <<extend>>        '리마인더 수정
+UC_SEdit ..> UC_CalSync : <<extend>>         '동기화 업데이트
+UC_SEdit ..> UC_Upload : <<extend>>          '첨부 변경
+UC_SEdit ..> UC_Mention : <<extend>>         '@멘션 추가 시 공지/알림 범위 지정
+
+UC_NPost ..> UC_Upload : <<extend>>          '파일 첨부 공지
+UC_NPost ..> UC_Mention : <<extend>>         '특정 멤버/역할 멘션
+UC_NEdit ..> UC_Upload : <<extend>>
+UC_NEdit ..> UC_Mention : <<extend>>
+
+' === 외부 시스템 연동 ===
+Noti <-- UC_Notify
+Audit <-- UC_Audit
+Storage <-- UC_Upload
+Calendar <-- UC_CalSync
+SearchIdx <-- UC_Reindex
+
+' === Notes ===
+note right of SchedNotice
+«requires auth»
+리더/관리자만 관리 가능
+일정/공지 변경 시 관련 멤버에게 알림 전송
+정책상 일부 변경은 제한/승인 필요 가능
+end note
+
+@enduml

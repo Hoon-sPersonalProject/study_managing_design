@@ -1,0 +1,70 @@
+@startuml
+' 스터디 생성 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "일반 회원" as User
+actor "스터디 리더" as Leader
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "파일 스토리지" as Storage
+actor "검색 인덱서" as SearchIdx
+
+' 역할 일반화(선택): 리더는 사용자 역할을 포함
+Leader --|> User
+
+' === System Boundary ===
+rectangle "스터디 운영 - 생성" as StudyCreate {
+
+  usecase "스터디 생성" as UC_Create
+
+  ' 공통/하위 UC (include)
+  usecase "콘텐츠/정책 검증\n(금지어/길이/권한)" as UC_Validate
+  usecase "중복/한도 검사\n(리더 생성 한도 등)" as UC_Quota
+  usecase "태그/지역 표준화" as UC_Normalize
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+  usecase "검색 인덱스 갱신" as UC_Reindex
+
+  ' 선택 흐름 (extend)
+  usecase "이미지/파일 업로드" as UC_Upload
+  usecase "임시 저장(초안)" as UC_Draft
+  usecase "관리자 승인 요청" as UC_AdminApprove
+}
+
+' === 주 실행자 ===
+User --> UC_Create
+Leader --> UC_Create
+
+' === include 관계 (항상 수행되는 교차 관심사) ===
+UC_Create ..> UC_Validate : <<include>>
+UC_Create ..> UC_Quota    : <<include>>
+UC_Create ..> UC_Normalize: <<include>>
+UC_Create ..> UC_Audit    : <<include>>
+UC_Create ..> UC_Notify   : <<include>>
+UC_Create ..> UC_Reindex  : <<include>>
+
+' === extend 관계 (조건부/선택) ===
+UC_Create ..> UC_Upload       : <<extend>>
+UC_Create ..> UC_Draft        : <<extend>>
+UC_Create ..> UC_AdminApprove : <<extend>>
+
+' === 외부 시스템 연동 ===
+Storage <-- UC_Upload
+Noti    <-- UC_Notify
+Audit   <-- UC_Audit
+SearchIdx <-- UC_Reindex
+
+' === Notes ===
+note right of UC_Create
+«requires auth»
+성공 시: 생성자 → 해당 스터디의 리더로 설정
+비공개 스터디는 권한 규칙에 따름
+end note
+
+@enduml
