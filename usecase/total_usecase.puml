@@ -1,0 +1,112 @@
+@startuml
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+actor "게스트" as Guest
+actor "일반 회원" as User
+actor "스터디 리더" as Leader
+actor "시스템 관리자" as Admin
+actor "알림 서비스" as Noti
+actor "OAuth 공급자" as SSO
+
+rectangle "스터디 관리 시스템" {
+
+  package "인증" {
+    usecase "회원가입" as UC1
+    usecase "로그인" as UC2
+    usecase "소셜 로그인" as UC2_1
+  }
+
+  package "탐색" {
+    usecase "스터디 검색" as UC3
+    usecase "스터디 상세보기" as UC3_1
+  }
+
+  package "참가/멤버십" {
+    usecase "스터디 참가 신청" as UC4
+    usecase "내 참가 현황 조회" as UC4_1
+    usecase "스터디 탈퇴" as UC4_2
+  }
+
+  package "스터디 운영" {
+    usecase "스터디 생성" as UC5
+    usecase "스터디 정보 수정" as UC6
+    usecase "참가자 관리(승인/추방)" as UC7
+    usecase "리더 위임" as UC7_1
+    usecase "모집 마감/재오픈" as UC7_2
+    usecase "일정/공지 관리" as UC7_3
+  }
+
+  package "시스템 관리" {
+    usecase "사용자 관리(정지/해제/권한)" as UC8
+    usecase "신고/제재 처리" as UC8_1
+    usecase "스터디 강제 종료/리더 교체" as UC9
+  }
+
+  package "플랫폼 공통" {
+    usecase "알림 발송" as UC10
+    usecase "감사 로그 기록" as UC11
+  }
+}
+
+' === 액터 연결 ===
+Guest --> UC1
+Guest --> UC2
+Guest --> UC2_1
+Guest --> UC3
+Guest --> UC3_1
+
+User --> UC3
+User --> UC3_1
+User --> UC4
+User --> UC4_1
+User --> UC4_2
+
+Leader --> UC5
+Leader --> UC6
+Leader --> UC7
+Leader --> UC7_1
+Leader --> UC7_2
+Leader --> UC7_3
+
+Admin --> UC8
+Admin --> UC8_1
+Admin --> UC9
+
+Noti <-- UC10
+SSO <-- UC2_1
+
+' === 관계 정교화 ===
+UC3_1 ..> UC3 : <<extend>>  '검색에서 상세로 진입
+UC10 ..> UC11 : <<include>>  '알림 전 발신 로그 남김
+
+' 인증 요구는 include 대신 스테레오타입/노트로
+note top of UC4
+«requires auth»
+end note
+note top of UC5
+«requires auth»
+end note
+note top of UC6
+«requires auth»
+end note
+note top of UC7
+«requires auth»
+end note
+
+' 권한 상속
+User --|> Guest
+Leader --|> User
+Admin --|> User
+
+' 비공개 접근 규칙은 상세보기의 예외 흐름으로
+note right of UC3_1
+비공개 스터디:
+- 미로그인: 로그인 유도
+- 로그인: 권한 검사 후 버튼 노출
+end note
+
+@enduml
