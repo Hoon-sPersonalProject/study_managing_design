@@ -1,0 +1,263 @@
+@startuml
+!define ENTITY class
+!define VALUE_OBJECT class
+!define AGGREGATE_ROOT class
+!define SERVICE class
+!define CONTROLLER class
+!define REPOSITORY interface
+
+skinparam class {
+    BackgroundColor<<Entity>> LightBlue
+    BackgroundColor<<ValueObject>> LightGreen
+    BackgroundColor<<AggregateRoot>> Orange
+    BackgroundColor<<Service>> LightYellow
+    BackgroundColor<<Controller>> Pink
+    BackgroundColor<<Repository>> LightGray
+}
+
+title 스터디 관리 시스템 - 통합 클래스 다이어그램
+
+' === 프레젠테이션 계층 ===
+package "Presentation Layer" {
+    CONTROLLER StudyController <<Controller>> {
+        +createStudy(): ResponseEntity
+        +searchStudies(): ResponseEntity
+        +getStudyDetail(): ResponseEntity
+        +updateStudy(): ResponseEntity
+    }
+
+    CONTROLLER ApplicationController <<Controller>> {
+        +applyToStudy(): ResponseEntity
+        +approveApplication(): ResponseEntity
+        +rejectApplication(): ResponseEntity
+        +getMyApplications(): ResponseEntity
+    }
+
+    CONTROLLER MemberController <<Controller>> {
+        +leaveStudy(): ResponseEntity
+        +getMyStudies(): ResponseEntity
+        +removeMember(): ResponseEntity
+    }
+
+    CONTROLLER NotificationController <<Controller>> {
+        +getNotifications(): ResponseEntity
+        +markAsRead(): ResponseEntity
+    }
+}
+
+' === 애플리케이션 계층 ===
+package "Application Layer" {
+    SERVICE StudyService <<Service>> {
+        +createStudy(): Study
+        +searchStudies(): List<Study>
+        +updateStudy(): void
+        +deleteStudy(): void
+    }
+
+    SERVICE ApplicationService <<Service>> {
+        +applyToStudy(): Application
+        +processApplication(): void
+        +cancelApplication(): void
+    }
+
+    SERVICE MembershipService <<Service>> {
+        +joinStudy(): StudyMember
+        +leaveStudy(): void
+        +manageMember(): void
+    }
+
+    SERVICE NotificationService <<Service>> {
+        +sendNotification(): void
+        +getNotifications(): List<Notification>
+    }
+}
+
+' === 도메인 계층 ===
+package "Domain Layer" {
+    ' === 사용자 도메인 ===
+    AGGREGATE_ROOT User <<AggregateRoot>> {
+        -id: Long
+        -email: String
+        -nickname: String
+        -status: UserStatus
+        +register(): User
+        +updateProfile(): void
+        +isActive(): boolean
+    }
+
+    enum UserStatus {
+        ACTIVE
+        SUSPENDED
+        DELETED
+    }
+
+    ' === 스터디 도메인 ===
+    AGGREGATE_ROOT Study <<AggregateRoot>> {
+        -id: Long
+        -title: String
+        -description: String
+        -maxParticipants: Integer
+        -status: StudyStatus
+        -leaderId: Long
+        +create(): Study
+        +updateInfo(): void
+        +openRecruitment(): void
+        +closeRecruitment(): void
+    }
+
+    enum StudyStatus {
+        RECRUITING
+        IN_PROGRESS
+        COMPLETED
+        CANCELLED
+    }
+
+    ENTITY StudyMember <<Entity>> {
+        -id: Long
+        -studyId: Long
+        -userId: Long
+        -role: MemberRole
+        +join(): StudyMember
+        +leave(): void
+    }
+
+    enum MemberRole {
+        LEADER
+        SUB_LEADER
+        MEMBER
+    }
+
+    ' === 참가 신청 도메인 ===
+    AGGREGATE_ROOT Application <<AggregateRoot>> {
+        -id: Long
+        -studyId: Long
+        -applicantId: Long
+        -status: ApplicationStatus
+        +apply(): Application
+        +approve(): void
+        +reject(): void
+        +cancel(): void
+    }
+
+    enum ApplicationStatus {
+        PENDING
+        APPROVED
+        REJECTED
+        CANCELLED
+    }
+
+    ' === 알림 도메인 ===
+    AGGREGATE_ROOT Notification <<AggregateRoot>> {
+        -id: Long
+        -recipientId: Long
+        -type: NotificationType
+        -content: String
+        -isRead: boolean
+        +send(): Notification
+        +markAsRead(): void
+    }
+
+    enum NotificationType {
+        APPLICATION_RECEIVED
+        APPLICATION_APPROVED
+        APPLICATION_REJECTED
+        MEMBER_JOINED
+        SCHEDULE_CREATED
+    }
+
+    ' === 일정/공지 도메인 ===
+    ENTITY Schedule <<Entity>> {
+        -id: Long
+        -studyId: Long
+        -title: String
+        -startTime: LocalDateTime
+        +create(): Schedule
+        +update(): void
+    }
+
+    ENTITY Notice <<Entity>> {
+        -id: Long
+        -studyId: Long
+        -title: String
+        -content: String
+        +post(): Notice
+        +update(): void
+    }
+}
+
+' === 인프라스트럭처 계층 ===
+package "Infrastructure Layer" {
+    REPOSITORY UserRepository <<Repository>> {
+        +save(): User
+        +findById(): Optional<User>
+        +findByEmail(): Optional<User>
+    }
+
+    REPOSITORY StudyRepository <<Repository>> {
+        +save(): Study
+        +findById(): Optional<Study>
+        +search(): List<Study>
+    }
+
+    REPOSITORY ApplicationRepository <<Repository>> {
+        +save(): Application
+        +findById(): Optional<Application>
+        +findByStudyId(): List<Application>
+    }
+
+    REPOSITORY NotificationRepository <<Repository>> {
+        +save(): Notification
+        +findByRecipientId(): List<Notification>
+    }
+}
+
+' === 값 객체 ===
+package "Value Objects" {
+    VALUE_OBJECT SearchCriteria <<ValueObject>> {
+        -keyword: String
+        -tags: List<String>
+        -region: String
+        +of(): SearchCriteria
+    }
+
+    VALUE_OBJECT StudyDetail <<ValueObject>> {
+        -study: Study
+        -leader: User
+        -memberCount: Integer
+        -canApply: Boolean
+        +of(): StudyDetail
+    }
+}
+
+' === 관계 정의 ===
+' 프레젠테이션 -> 애플리케이션
+StudyController ..> StudyService : uses
+ApplicationController ..> ApplicationService : uses
+MemberController ..> MembershipService : uses
+NotificationController ..> NotificationService : uses
+
+' 애플리케이션 -> 도메인
+StudyService ..> Study : manipulates
+ApplicationService ..> Application : manipulates
+MembershipService ..> StudyMember : manipulates
+NotificationService ..> Notification : manipulates
+
+' 애플리케이션 -> 인프라
+StudyService ..> StudyRepository : uses
+ApplicationService ..> ApplicationRepository : uses
+NotificationService ..> NotificationRepository : uses
+
+' 도메인 관계
+User ||--o{ StudyMember : "참여"
+Study ||--o{ StudyMember : "소속"
+Study ||--o{ Application : "신청받음"
+User ||--o{ Application : "신청함"
+Study ||--o{ Schedule : "일정가짐"
+Study ||--o{ Notice : "공지가짐"
+User ||--o{ Notification : "받음"
+
+' 값 객체 사용
+StudyService ..> SearchCriteria : uses
+StudyService ..> StudyDetail : creates
+
+@enduml

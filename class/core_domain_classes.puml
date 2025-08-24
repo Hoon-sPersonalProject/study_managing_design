@@ -1,0 +1,254 @@
+@startuml
+!define ENTITY class
+!define VALUE_OBJECT class
+!define AGGREGATE_ROOT class
+!define SERVICE class
+
+skinparam class {
+    BackgroundColor<<Entity>> LightBlue
+    BackgroundColor<<ValueObject>> LightGreen
+    BackgroundColor<<AggregateRoot>> Orange
+    BackgroundColor<<Service>> LightYellow
+}
+
+' === 사용자 도메인 ===
+AGGREGATE_ROOT User <<AggregateRoot>> {
+    -id: Long
+    -email: String
+    -nickname: String
+    -profileImageUrl: String
+    -status: UserStatus
+    -createdAt: LocalDateTime
+    -updatedAt: LocalDateTime
+    +register(): User
+    +updateProfile(): void
+    +suspend(): void
+    +unsuspend(): void
+    +isActive(): boolean
+}
+
+enum UserStatus {
+    ACTIVE
+    SUSPENDED
+    DELETED
+}
+
+enum UserRole {
+    GUEST
+    MEMBER
+    LEADER
+    ADMIN
+}
+
+' === 스터디 도메인 ===
+AGGREGATE_ROOT Study <<AggregateRoot>> {
+    -id: Long
+    -title: String
+    -description: String
+    -tags: List<String>
+    -region: String
+    -maxParticipants: Integer
+    -currentParticipants: Integer
+    -status: StudyStatus
+    -visibility: StudyVisibility
+    -leaderId: Long
+    -coverImageUrl: String
+    -createdAt: LocalDateTime
+    -updatedAt: LocalDateTime
+    +create(): Study
+    +updateInfo(): void
+    +openRecruitment(): void
+    +closeRecruitment(): void
+    +increaseParticipants(): void
+    +decreaseParticipants(): void
+    +isRecruitmentOpen(): boolean
+    +isFull(): boolean
+}
+
+enum StudyStatus {
+    DRAFT
+    RECRUITING
+    IN_PROGRESS
+    COMPLETED
+    CANCELLED
+}
+
+enum StudyVisibility {
+    PUBLIC
+    PRIVATE
+}
+
+ENTITY StudyMember <<Entity>> {
+    -id: Long
+    -studyId: Long
+    -userId: Long
+    -role: MemberRole
+    -joinedAt: LocalDateTime
+    +join(): StudyMember
+    +changeRole(): void
+    +leave(): void
+}
+
+enum MemberRole {
+    LEADER
+    SUB_LEADER
+    MEMBER
+}
+
+' === 참가 신청 도메인 ===
+AGGREGATE_ROOT Application <<AggregateRoot>> {
+    -id: Long
+    -studyId: Long
+    -applicantId: Long
+    -status: ApplicationStatus
+    -applicationMessage: String
+    -rejectionReason: String
+    -appliedAt: LocalDateTime
+    -processedAt: LocalDateTime
+    +apply(): Application
+    +approve(): void
+    +reject(): void
+    +cancel(): void
+    +isProcessable(): boolean
+    +isPending(): boolean
+}
+
+enum ApplicationStatus {
+    PENDING
+    APPROVED
+    REJECTED
+    CANCELLED
+    WAITLISTED
+}
+
+' === 알림 도메인 ===
+AGGREGATE_ROOT Notification <<AggregateRoot>> {
+    -id: Long
+    -recipientId: Long
+    -type: NotificationType
+    -title: String
+    -content: String
+    -isRead: boolean
+    -relatedEntityType: String
+    -relatedEntityId: Long
+    -createdAt: LocalDateTime
+    +send(): Notification
+    +markAsRead(): void
+    +isUnread(): boolean
+}
+
+enum NotificationType {
+    STUDY_APPLICATION_RECEIVED
+    STUDY_APPLICATION_APPROVED
+    STUDY_APPLICATION_REJECTED
+    STUDY_MEMBER_JOINED
+    STUDY_MEMBER_LEFT
+    STUDY_SCHEDULE_CREATED
+    STUDY_NOTICE_POSTED
+    SYSTEM_ANNOUNCEMENT
+}
+
+' === 스터디 일정 도메인 ===
+ENTITY Schedule <<Entity>> {
+    -id: Long
+    -studyId: Long
+    -title: String
+    -description: String
+    -startTime: LocalDateTime
+    -endTime: LocalDateTime
+    -location: String
+    -isRepeating: boolean
+    -repeatPattern: String
+    -createdAt: LocalDateTime
+    +create(): Schedule
+    +update(): void
+    +cancel(): void
+    +isUpcoming(): boolean
+}
+
+' === 스터디 공지 도메인 ===
+ENTITY Notice <<Entity>> {
+    -id: Long
+    -studyId: Long
+    -authorId: Long
+    -title: String
+    -content: String
+    -isPinned: boolean
+    -createdAt: LocalDateTime
+    -updatedAt: LocalDateTime
+    +post(): Notice
+    +update(): void
+    +pin(): void
+    +unpin(): void
+    +archive(): void
+}
+
+' === 신고/제재 도메인 ===
+AGGREGATE_ROOT Report <<AggregateRoot>> {
+    -id: Long
+    -reporterId: Long
+    -reportedId: Long
+    -reportType: ReportType
+    -reason: String
+    -evidence: String
+    -status: ReportStatus
+    -createdAt: LocalDateTime
+    -processedAt: LocalDateTime
+    +file(): Report
+    +process(): void
+    +reject(): void
+    +isPending(): boolean
+}
+
+enum ReportType {
+    SPAM
+    ABUSE
+    INAPPROPRIATE_CONTENT
+    COPYRIGHT_VIOLATION
+    FRAUD
+}
+
+enum ReportStatus {
+    PENDING
+    UNDER_REVIEW
+    RESOLVED
+    REJECTED
+}
+
+ENTITY Sanction <<Entity>> {
+    -id: Long
+    -userId: Long
+    -sanctionType: SanctionType
+    -reason: String
+    -startTime: LocalDateTime
+    -endTime: LocalDateTime
+    -isActive: boolean
+    +impose(): Sanction
+    +lift(): void
+    +extend(): void
+    +isExpired(): boolean
+}
+
+enum SanctionType {
+    WARNING
+    MUTE
+    STUDY_BAN
+    TEMPORARY_SUSPENSION
+    PERMANENT_BAN
+}
+
+' === 관계 정의 ===
+User ||--o{ StudyMember : "참여"
+Study ||--o{ StudyMember : "소속"
+Study ||--o{ Application : "신청받음"
+User ||--o{ Application : "신청함"
+Study ||--o{ Schedule : "일정가짐"
+Study ||--o{ Notice : "공지가짐"
+User ||--o{ Notification : "받음"
+User ||--o{ Report : "신고함/당함"
+User ||--o{ Sanction : "제재받음"
+
+Study ||-- User : "리더"
+Notice ||-- User : "작성자"
+
+@enduml

@@ -1,0 +1,189 @@
+@startuml
+!define SERVICE class
+!define REPOSITORY interface
+
+skinparam class {
+    BackgroundColor<<Service>> LightYellow
+    BackgroundColor<<Repository>> LightGray
+}
+
+' === 도메인 서비스 ===
+SERVICE AuthenticationService <<Service>> {
+    +login(email: String, password: String): User
+    +socialLogin(provider: String, token: String): User
+    +logout(userId: Long): void
+    +validatePermission(userId: Long, action: String): boolean
+}
+
+SERVICE StudyService <<Service>> {
+    +createStudy(request: CreateStudyRequest): Study
+    +updateStudy(studyId: Long, request: UpdateStudyRequest): void
+    +searchStudies(criteria: SearchCriteria): List<Study>
+    +getStudyDetail(studyId: Long, userId: Long): StudyDetail
+    +openRecruitment(studyId: Long, leaderId: Long): void
+    +closeRecruitment(studyId: Long, leaderId: Long): void
+    +deleteStudy(studyId: Long, leaderId: Long): void
+}
+
+SERVICE ApplicationService <<Service>> {
+    +applyToStudy(studyId: Long, applicantId: Long, message: String): Application
+    +approveApplication(applicationId: Long, leaderId: Long): void
+    +rejectApplication(applicationId: Long, leaderId: Long, reason: String): void
+    +cancelApplication(applicationId: Long, applicantId: Long): void
+    +getMyApplications(userId: Long): List<Application>
+    +getStudyApplications(studyId: Long, leaderId: Long): List<Application>
+}
+
+SERVICE MembershipService <<Service>> {
+    +joinStudy(studyId: Long, userId: Long): StudyMember
+    +leaveStudy(studyId: Long, userId: Long): void
+    +removeMember(studyId: Long, userId: Long, leaderId: Long): void
+    +changeRole(studyId: Long, userId: Long, newRole: MemberRole): void
+    +delegateLeadership(studyId: Long, currentLeaderId: Long, newLeaderId: Long): void
+    +getMyStudies(userId: Long): List<StudyMember>
+}
+
+SERVICE NotificationService <<Service>> {
+    +sendNotification(recipientId: Long, type: NotificationType, content: String): void
+    +sendBulkNotification(recipients: List<Long>, content: String): void
+    +markAsRead(notificationId: Long, userId: Long): void
+    +getUnreadNotifications(userId: Long): List<Notification>
+    +subscribeToStudyNotifications(userId: Long, studyId: Long): void
+}
+
+SERVICE ScheduleService <<Service>> {
+    +createSchedule(studyId: Long, request: CreateScheduleRequest): Schedule
+    +updateSchedule(scheduleId: Long, request: UpdateScheduleRequest): void
+    +cancelSchedule(scheduleId: Long, userId: Long): void
+    +getStudySchedules(studyId: Long): List<Schedule>
+    +getUpcomingSchedules(userId: Long): List<Schedule>
+}
+
+SERVICE NoticeService <<Service>> {
+    +postNotice(studyId: Long, authorId: Long, request: PostNoticeRequest): Notice
+    +updateNotice(noticeId: Long, authorId: Long, request: UpdateNoticeRequest): void
+    +pinNotice(noticeId: Long, leaderId: Long): void
+    +archiveNotice(noticeId: Long, authorId: Long): void
+    +getStudyNotices(studyId: Long): List<Notice>
+}
+
+SERVICE ModerationService <<Service>> {
+    +fileReport(reporterId: Long, reportedId: Long, reason: String): Report
+    +processReport(reportId: Long, adminId: Long): void
+    +imposeSanction(userId: Long, sanctionType: SanctionType, reason: String): void
+    +liftSanction(sanctionId: Long, adminId: Long): void
+    +getUserSanctions(userId: Long): List<Sanction>
+}
+
+SERVICE UserService <<Service>> {
+    +registerUser(request: RegisterRequest): User
+    +updateProfile(userId: Long, request: UpdateProfileRequest): void
+    +suspendUser(userId: Long, adminId: Long, reason: String): void
+    +unsuspendUser(userId: Long, adminId: Long): void
+    +deleteUser(userId: Long): void
+    +searchUsers(criteria: SearchCriteria): List<User>
+}
+
+' === 리포지토리 인터페이스 ===
+REPOSITORY UserRepository <<Repository>> {
+    +save(user: User): User
+    +findById(id: Long): Optional<User>
+    +findByEmail(email: String): Optional<User>
+    +findAll(): List<User>
+    +delete(user: User): void
+}
+
+REPOSITORY StudyRepository <<Repository>> {
+    +save(study: Study): Study
+    +findById(id: Long): Optional<Study>
+    +findByLeaderId(leaderId: Long): List<Study>
+    +search(criteria: SearchCriteria): List<Study>
+    +delete(study: Study): void
+}
+
+REPOSITORY ApplicationRepository <<Repository>> {
+    +save(application: Application): Application
+    +findById(id: Long): Optional<Application>
+    +findByStudyId(studyId: Long): List<Application>
+    +findByApplicantId(applicantId: Long): List<Application>
+    +delete(application: Application): void
+}
+
+REPOSITORY StudyMemberRepository <<Repository>> {
+    +save(member: StudyMember): StudyMember
+    +findById(id: Long): Optional<StudyMember>
+    +findByStudyId(studyId: Long): List<StudyMember>
+    +findByUserId(userId: Long): List<StudyMember>
+    +delete(member: StudyMember): void
+}
+
+REPOSITORY NotificationRepository <<Repository>> {
+    +save(notification: Notification): Notification
+    +findByRecipientId(recipientId: Long): List<Notification>
+    +findUnreadByRecipientId(recipientId: Long): List<Notification>
+    +delete(notification: Notification): void
+}
+
+REPOSITORY ScheduleRepository <<Repository>> {
+    +save(schedule: Schedule): Schedule
+    +findById(id: Long): Optional<Schedule>
+    +findByStudyId(studyId: Long): List<Schedule>
+    +findUpcomingSchedules(): List<Schedule>
+}
+
+REPOSITORY NoticeRepository <<Repository>> {
+    +save(notice: Notice): Notice
+    +findById(id: Long): Optional<Notice>
+    +findByStudyId(studyId: Long): List<Notice>
+    +delete(notice: Notice): void
+}
+
+REPOSITORY ReportRepository <<Repository>> {
+    +save(report: Report): Report
+    +findById(id: Long): Optional<Report>
+    +findPendingReports(): List<Report>
+    +findByReporterId(reporterId: Long): List<Report>
+}
+
+REPOSITORY SanctionRepository <<Repository>> {
+    +save(sanction: Sanction): Sanction
+    +findById(id: Long): Optional<Sanction>
+    +findActiveByUserId(userId: Long): List<Sanction>
+    +findExpiredSanctions(): List<Sanction>
+}
+
+' === 서비스 간 의존성 ===
+StudyService ..> StudyRepository : uses
+StudyService ..> UserRepository : uses
+StudyService ..> NotificationService : uses
+
+ApplicationService ..> ApplicationRepository : uses
+ApplicationService ..> StudyRepository : uses
+ApplicationService ..> UserRepository : uses
+ApplicationService ..> NotificationService : uses
+ApplicationService ..> MembershipService : uses
+
+MembershipService ..> StudyMemberRepository : uses
+MembershipService ..> StudyRepository : uses
+MembershipService ..> UserRepository : uses
+MembershipService ..> NotificationService : uses
+
+NotificationService ..> NotificationRepository : uses
+
+ScheduleService ..> ScheduleRepository : uses
+ScheduleService ..> StudyRepository : uses
+ScheduleService ..> NotificationService : uses
+
+NoticeService ..> NoticeRepository : uses
+NoticeService ..> StudyRepository : uses
+NoticeService ..> NotificationService : uses
+
+ModerationService ..> ReportRepository : uses
+ModerationService ..> SanctionRepository : uses
+ModerationService ..> UserRepository : uses
+ModerationService ..> NotificationService : uses
+
+UserService ..> UserRepository : uses
+UserService ..> NotificationService : uses
+
+@enduml

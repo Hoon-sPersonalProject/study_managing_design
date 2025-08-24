@@ -1,0 +1,262 @@
+@startuml
+!define VALUE_OBJECT class
+!define DTO class
+!define REQUEST class
+!define RESPONSE class
+
+skinparam class {
+    BackgroundColor<<ValueObject>> LightGreen
+    BackgroundColor<<DTO>> Pink
+    BackgroundColor<<Request>> LightCyan
+    BackgroundColor<<Response>> LightSalmon
+}
+
+' === 값 객체 (Value Objects) ===
+VALUE_OBJECT SearchCriteria <<ValueObject>> {
+    -keyword: String
+    -tags: List<String>
+    -region: String
+    -status: StudyStatus
+    -visibility: StudyVisibility
+    -sortBy: String
+    -sortOrder: String
+    -page: Integer
+    -size: Integer
+    +of(): SearchCriteria
+    +withKeyword(): SearchCriteria
+    +withTags(): SearchCriteria
+}
+
+VALUE_OBJECT StudyDetail <<ValueObject>> {
+    -study: Study
+    -leader: User
+    -memberCount: Integer
+    -isParticipant: Boolean
+    -applicationStatus: ApplicationStatus
+    -canApply: Boolean
+    -canManage: Boolean
+    +of(): StudyDetail
+}
+
+VALUE_OBJECT ParticipationStatus <<ValueObject>> {
+    -studyId: Long
+    -studyTitle: String
+    -status: ApplicationStatus
+    -appliedAt: LocalDateTime
+    -processedAt: LocalDateTime
+    +isApproved(): Boolean
+    +isPending(): Boolean
+    +isRejected(): Boolean
+}
+
+' === 요청 DTO ===
+REQUEST RegisterRequest <<Request>> {
+    -email: String
+    -password: String
+    -nickname: String
+    -profileImageUrl: String
+    +validate(): Boolean
+}
+
+REQUEST LoginRequest <<Request>> {
+    -email: String
+    -password: String
+    +validate(): Boolean
+}
+
+REQUEST CreateStudyRequest <<Request>> {
+    -title: String
+    -description: String
+    -tags: List<String>
+    -region: String
+    -maxParticipants: Integer
+    -visibility: StudyVisibility
+    -coverImageUrl: String
+    +validate(): Boolean
+}
+
+REQUEST UpdateStudyRequest <<Request>> {
+    -title: String
+    -description: String
+    -tags: List<String>
+    -region: String
+    -maxParticipants: Integer
+    -visibility: StudyVisibility
+    -coverImageUrl: String
+    +validate(): Boolean
+}
+
+REQUEST ApplicationRequest <<Request>> {
+    -studyId: Long
+    -applicationMessage: String
+    +validate(): Boolean
+}
+
+REQUEST CreateScheduleRequest <<Request>> {
+    -title: String
+    -description: String
+    -startTime: LocalDateTime
+    -endTime: LocalDateTime
+    -location: String
+    -isRepeating: Boolean
+    -repeatPattern: String
+    +validate(): Boolean
+}
+
+REQUEST UpdateScheduleRequest <<Request>> {
+    -title: String
+    -description: String
+    -startTime: LocalDateTime
+    -endTime: LocalDateTime
+    -location: String
+    -isRepeating: Boolean
+    -repeatPattern: String
+    +validate(): Boolean
+}
+
+REQUEST PostNoticeRequest <<Request>> {
+    -title: String
+    -content: String
+    -attachments: List<String>
+    +validate(): Boolean
+}
+
+REQUEST UpdateNoticeRequest <<Request>> {
+    -title: String
+    -content: String
+    -attachments: List<String>
+    +validate(): Boolean
+}
+
+REQUEST ReportRequest <<Request>> {
+    -reportedId: Long
+    -reportType: ReportType
+    -reason: String
+    -evidence: String
+    +validate(): Boolean
+}
+
+REQUEST UpdateProfileRequest <<Request>> {
+    -nickname: String
+    -profileImageUrl: String
+    -bio: String
+    +validate(): Boolean
+}
+
+' === 응답 DTO ===
+RESPONSE UserResponse <<Response>> {
+    -id: Long
+    -email: String
+    -nickname: String
+    -profileImageUrl: String
+    -status: UserStatus
+    -createdAt: LocalDateTime
+    +of(user: User): UserResponse
+}
+
+RESPONSE StudyResponse <<Response>> {
+    -id: Long
+    -title: String
+    -description: String
+    -tags: List<String>
+    -region: String
+    -maxParticipants: Integer
+    -currentParticipants: Integer
+    -status: StudyStatus
+    -visibility: StudyVisibility
+    -leader: UserResponse
+    -coverImageUrl: String
+    -createdAt: LocalDateTime
+    +of(study: Study): StudyResponse
+}
+
+RESPONSE ApplicationResponse <<Response>> {
+    -id: Long
+    -study: StudyResponse
+    -applicant: UserResponse
+    -status: ApplicationStatus
+    -applicationMessage: String
+    -rejectionReason: String
+    -appliedAt: LocalDateTime
+    -processedAt: LocalDateTime
+    +of(application: Application): ApplicationResponse
+}
+
+RESPONSE NotificationResponse <<Response>> {
+    -id: Long
+    -type: NotificationType
+    -title: String
+    -content: String
+    -isRead: Boolean
+    -relatedEntityType: String
+    -relatedEntityId: Long
+    -createdAt: LocalDateTime
+    +of(notification: Notification): NotificationResponse
+}
+
+RESPONSE ScheduleResponse <<Response>> {
+    -id: Long
+    -study: StudyResponse
+    -title: String
+    -description: String
+    -startTime: LocalDateTime
+    -endTime: LocalDateTime
+    -location: String
+    -isRepeating: Boolean
+    -repeatPattern: String
+    -createdAt: LocalDateTime
+    +of(schedule: Schedule): ScheduleResponse
+}
+
+RESPONSE NoticeResponse <<Response>> {
+    -id: Long
+    -study: StudyResponse
+    -author: UserResponse
+    -title: String
+    -content: String
+    -isPinned: Boolean
+    -attachments: List<String>
+    -createdAt: LocalDateTime
+    -updatedAt: LocalDateTime
+    +of(notice: Notice): NoticeResponse
+}
+
+RESPONSE MemberResponse <<Response>> {
+    -id: Long
+    -user: UserResponse
+    -role: MemberRole
+    -joinedAt: LocalDateTime
+    +of(member: StudyMember): MemberResponse
+}
+
+' === 페이징 관련 ===
+VALUE_OBJECT PageRequest <<ValueObject>> {
+    -page: Integer
+    -size: Integer
+    -sort: String
+    +of(page: Integer, size: Integer): PageRequest
+    +withSort(sort: String): PageRequest
+}
+
+RESPONSE PageResponse<T> <<Response>> {
+    -content: List<T>
+    -totalElements: Long
+    -totalPages: Integer
+    -currentPage: Integer
+    -size: Integer
+    -hasNext: Boolean
+    -hasPrevious: Boolean
+    +of(content: List<T>, totalElements: Long): PageResponse<T>
+}
+
+' === API 응답 wrapper ===
+RESPONSE ApiResponse<T> <<Response>> {
+    -success: Boolean
+    -message: String
+    -data: T
+    -timestamp: LocalDateTime
+    +success(data: T): ApiResponse<T>
+    +error(message: String): ApiResponse<T>
+}
+
+@enduml

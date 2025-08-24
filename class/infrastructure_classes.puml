@@ -1,0 +1,199 @@
+@startuml
+!define CONTROLLER class
+!define CONFIGURATION class
+!define COMPONENT class
+!define EXTERNAL class
+
+skinparam class {
+    BackgroundColor<<Controller>> LightBlue
+    BackgroundColor<<Configuration>> Orange
+    BackgroundColor<<Component>> LightYellow
+    BackgroundColor<<External>> Gray
+}
+
+' === 컨트롤러 계층 ===
+CONTROLLER AuthController <<Controller>> {
+    -authenticationService: AuthenticationService
+    +register(request: RegisterRequest): ResponseEntity<ApiResponse<UserResponse>>
+    +login(request: LoginRequest): ResponseEntity<ApiResponse<String>>
+    +logout(): ResponseEntity<ApiResponse<Void>>
+    +refresh(): ResponseEntity<ApiResponse<String>>
+}
+
+CONTROLLER StudyController <<Controller>> {
+    -studyService: StudyService
+    +createStudy(request: CreateStudyRequest): ResponseEntity<ApiResponse<StudyResponse>>
+    +getStudyDetail(studyId: Long): ResponseEntity<ApiResponse<StudyDetail>>
+    +updateStudy(studyId: Long, request: UpdateStudyRequest): ResponseEntity<ApiResponse<Void>>
+    +searchStudies(criteria: SearchCriteria): ResponseEntity<ApiResponse<PageResponse<StudyResponse>>>
+    +deleteStudy(studyId: Long): ResponseEntity<ApiResponse<Void>>
+}
+
+CONTROLLER ApplicationController <<Controller>> {
+    -applicationService: ApplicationService
+    +applyToStudy(studyId: Long, request: ApplicationRequest): ResponseEntity<ApiResponse<ApplicationResponse>>
+    +getMyApplications(): ResponseEntity<ApiResponse<List<ApplicationResponse>>>
+    +cancelApplication(applicationId: Long): ResponseEntity<ApiResponse<Void>>
+    +approveApplication(applicationId: Long): ResponseEntity<ApiResponse<Void>>
+    +rejectApplication(applicationId: Long, reason: String): ResponseEntity<ApiResponse<Void>>
+}
+
+CONTROLLER MemberController <<Controller>> {
+    -membershipService: MembershipService
+    +getMyStudies(): ResponseEntity<ApiResponse<List<StudyResponse>>>
+    +leaveStudy(studyId: Long): ResponseEntity<ApiResponse<Void>>
+    +getStudyMembers(studyId: Long): ResponseEntity<ApiResponse<List<MemberResponse>>>
+    +removeMember(studyId: Long, userId: Long): ResponseEntity<ApiResponse<Void>>
+    +changeRole(studyId: Long, userId: Long, role: MemberRole): ResponseEntity<ApiResponse<Void>>
+}
+
+CONTROLLER NotificationController <<Controller>> {
+    -notificationService: NotificationService
+    +getNotifications(): ResponseEntity<ApiResponse<List<NotificationResponse>>>
+    +markAsRead(notificationId: Long): ResponseEntity<ApiResponse<Void>>
+    +markAllAsRead(): ResponseEntity<ApiResponse<Void>>
+    +getUnreadCount(): ResponseEntity<ApiResponse<Integer>>
+}
+
+CONTROLLER ScheduleController <<Controller>> {
+    -scheduleService: ScheduleService
+    +createSchedule(studyId: Long, request: CreateScheduleRequest): ResponseEntity<ApiResponse<ScheduleResponse>>
+    +updateSchedule(scheduleId: Long, request: UpdateScheduleRequest): ResponseEntity<ApiResponse<Void>>
+    +cancelSchedule(scheduleId: Long): ResponseEntity<ApiResponse<Void>>
+    +getStudySchedules(studyId: Long): ResponseEntity<ApiResponse<List<ScheduleResponse>>>
+}
+
+CONTROLLER NoticeController <<Controller>> {
+    -noticeService: NoticeService
+    +postNotice(studyId: Long, request: PostNoticeRequest): ResponseEntity<ApiResponse<NoticeResponse>>
+    +updateNotice(noticeId: Long, request: UpdateNoticeRequest): ResponseEntity<ApiResponse<Void>>
+    +getStudyNotices(studyId: Long): ResponseEntity<ApiResponse<List<NoticeResponse>>>
+    +pinNotice(noticeId: Long): ResponseEntity<ApiResponse<Void>>
+    +archiveNotice(noticeId: Long): ResponseEntity<ApiResponse<Void>>
+}
+
+CONTROLLER AdminController <<Controller>> {
+    -userService: UserService
+    -moderationService: ModerationService
+    +getUsers(criteria: SearchCriteria): ResponseEntity<ApiResponse<PageResponse<UserResponse>>>
+    +suspendUser(userId: Long, reason: String): ResponseEntity<ApiResponse<Void>>
+    +unsuspendUser(userId: Long): ResponseEntity<ApiResponse<Void>>
+    +getPendingReports(): ResponseEntity<ApiResponse<List<Report>>>
+    +processReport(reportId: Long): ResponseEntity<ApiResponse<Void>>
+}
+
+' === 설정 및 구성 ===
+CONFIGURATION SecurityConfig <<Configuration>> {
+    +passwordEncoder(): PasswordEncoder
+    +jwtTokenProvider(): JwtTokenProvider
+    +securityFilterChain(): SecurityFilterChain
+    +corsConfigurationSource(): CorsConfigurationSource
+}
+
+CONFIGURATION DatabaseConfig <<Configuration>> {
+    +dataSource(): DataSource
+    +transactionManager(): PlatformTransactionManager
+    +jpaTransactionManager(): JpaTransactionManager
+}
+
+CONFIGURATION RedisConfig <<Configuration>> {
+    +redisConnectionFactory(): RedisConnectionFactory
+    +redisTemplate(): RedisTemplate<String, Object>
+    +cacheManager(): CacheManager
+}
+
+CONFIGURATION NotificationConfig <<Configuration>> {
+    +emailSender(): JavaMailSender
+    +notificationTemplate(): NotificationTemplate
+    +asyncTaskExecutor(): TaskExecutor
+}
+
+' === 인프라 컴포넌트 ===
+COMPONENT JwtTokenProvider <<Component>> {
+    -secretKey: String
+    -expiration: Long
+    +generateToken(userId: Long): String
+    +validateToken(token: String): Boolean
+    +getUserIdFromToken(token: String): Long
+    +getExpirationFromToken(token: String): Date
+}
+
+COMPONENT FileStorageService <<Component>> {
+    -uploadPath: String
+    +uploadFile(file: MultipartFile): String
+    +deleteFile(fileName: String): void
+    +generatePreSignedUrl(fileName: String): String
+}
+
+COMPONENT EmailService <<Component>> {
+    -mailSender: JavaMailSender
+    -templateEngine: TemplateEngine
+    +sendEmail(to: String, subject: String, content: String): void
+    +sendTemplateEmail(to: String, templateName: String, variables: Map<String, Object>): void
+    +sendBulkEmail(recipients: List<String>, subject: String, content: String): void
+}
+
+COMPONENT SearchService <<Component>> {
+    -elasticsearchTemplate: ElasticsearchTemplate
+    +indexStudy(study: Study): void
+    +searchStudies(criteria: SearchCriteria): List<Study>
+    +deleteStudyFromIndex(studyId: Long): void
+    +reindexAllStudies(): void
+}
+
+COMPONENT CacheService <<Component>> {
+    -redisTemplate: RedisTemplate<String, Object>
+    +put(key: String, value: Object, expiration: Duration): void
+    +get(key: String, type: Class<T>): T
+    +delete(key: String): void
+    +exists(key: String): Boolean
+}
+
+COMPONENT AuditService <<Component>> {
+    +logUserAction(userId: Long, action: String, details: String): void
+    +logSystemEvent(event: String, details: String): void
+    +logSecurityEvent(userId: Long, event: String, ipAddress: String): void
+}
+
+' === 외부 시스템 인터페이스 ===
+EXTERNAL OAuthProvider <<External>> {
+    +authenticate(token: String): OAuthUser
+    +getUserInfo(accessToken: String): OAuthUserInfo
+}
+
+EXTERNAL PaymentGateway <<External>> {
+    +processPayment(paymentRequest: PaymentRequest): PaymentResult
+    +refund(transactionId: String, amount: BigDecimal): RefundResult
+    +getPaymentStatus(transactionId: String): PaymentStatus
+}
+
+EXTERNAL SMSService <<External>> {
+    +sendSMS(phoneNumber: String, message: String): SMSResult
+    +sendBulkSMS(recipients: List<String>, message: String): List<SMSResult>
+}
+
+EXTERNAL PushNotificationService <<External>> {
+    +sendPushNotification(deviceToken: String, message: PushMessage): PushResult
+    +sendBulkPushNotification(deviceTokens: List<String>, message: PushMessage): List<PushResult>
+}
+
+' === 예외 처리 ===
+COMPONENT GlobalExceptionHandler <<Component>> {
+    +handleValidationException(ex: ValidationException): ResponseEntity<ApiResponse<Void>>
+    +handleEntityNotFoundException(ex: EntityNotFoundException): ResponseEntity<ApiResponse<Void>>
+    +handleAccessDeniedException(ex: AccessDeniedException): ResponseEntity<ApiResponse<Void>>
+    +handleInternalServerError(ex: Exception): ResponseEntity<ApiResponse<Void>>
+}
+
+' === 의존성 관계 ===
+AuthController ..> AuthenticationService : uses
+StudyController ..> StudyService : uses
+ApplicationController ..> ApplicationService : uses
+MemberController ..> MembershipService : uses
+NotificationController ..> NotificationService : uses
+ScheduleController ..> ScheduleService : uses
+NoticeController ..> NoticeService : uses
+AdminController ..> UserService : uses
+AdminController ..> ModerationService : uses
+
+@enduml
