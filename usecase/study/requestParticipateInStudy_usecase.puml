@@ -1,0 +1,79 @@
+@startuml
+' 스터디 참가 신청 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "일반 회원(신청자)" as User
+actor "스터디 리더" as Leader
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "결제 게이트웨이(옵션)" as Pay
+actor "본인인증 서비스(옵션)" as Verify
+
+' === System Boundary ===
+rectangle "스터디 운영 - 참가 신청" as ApplyStudy {
+
+  ' 메인 UC
+  usecase "스터디 참가 신청" as UC_Apply
+
+  ' 항상 수행되는 교차 관심사 (include)
+  usecase "권한/자격 검증\n(로그인/차단/중복)" as UC_Authz
+  usecase "상태/정원/정책 검증\n(모집중/정원/재참가 제한)" as UC_Validate
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "자동 승인" as UC_AutoApprove
+  usecase "승인 대기 등록" as UC_Pending
+  usecase "대기자 등록" as UC_Waitlist
+  usecase "초대 코드 검증" as UC_Invite
+  usecase "추가 질문/설문 제출" as UC_Questionnaire
+  usecase "본인인증" as UC_Verify
+  usecase "유료 스터디 결제" as UC_Payment
+  usecase "신청 취소(대기 중)" as UC_Cancel
+}
+
+' === 실행자 연결 ===
+User --> UC_Apply
+'Leader --> UC_Cancel  '리더가 대기 취소를 대신 처리하는 정책이 있을 수 있음(선택)
+
+' === include: 공통 교차 관심사 ===
+UC_Apply ..> UC_Authz    : <<include>>
+UC_Apply ..> UC_Validate : <<include>>
+UC_Apply ..> UC_Audit    : <<include>>
+UC_Apply ..> UC_Notify   : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Apply ..> UC_Invite        : <<extend>>   '초대 기반 스터디
+UC_Apply ..> UC_Questionnaire : <<extend>>   '추가 질문 요구 시
+UC_Apply ..> UC_Verify        : <<extend>>   '본인인증 필요 시
+UC_Apply ..> UC_Payment       : <<extend>>   '유료 스터디
+UC_Apply ..> UC_AutoApprove   : <<extend>>   '정책 충족 시 자동 승인
+UC_Apply ..> UC_Pending       : <<extend>>   '수동 승인 정책
+UC_Apply ..> UC_Waitlist      : <<extend>>   '정원 초과 시
+UC_Apply ..> UC_Cancel        : <<extend>>   '대기 상태에서만 취소 가능
+
+' === 외부 시스템 연동 ===
+Audit <-- UC_Audit
+Noti  <-- UC_Notify
+Pay   <-- UC_Payment
+Verify <-- UC_Verify
+
+' === Notes ===
+note right of UC_Apply
+«requires auth»
+핵심 규칙:
+- 스터디 상태가 '모집중'이어야 신청 가능
+- 중복 신청/차단 사용자 신청 방지
+- 정책에 따라 자동 승인 또는 승인 대기
+- 정원 초과 시 대기자 등록
+- 유료/본인인증/초대코드 등은 조건부 확장
+- 모든 결과는 알림 및 감사 로그로 남김
+end note
+
+@enduml

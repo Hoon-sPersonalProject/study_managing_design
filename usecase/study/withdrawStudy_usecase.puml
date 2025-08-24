@@ -1,0 +1,78 @@
+@startuml
+' 스터디 운영 - 스터디 탈퇴 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "일반 회원(탈퇴자)" as Member
+actor "스터디 리더" as Leader
+actor "시스템 관리자(옵션)" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "결제 게이트웨이(옵션)" as Pay
+
+' === System Boundary ===
+rectangle "스터디 운영 - 스터디 탈퇴" as LeaveStudy {
+
+  ' 메인 UC
+  usecase "스터디 탈퇴" as UC_Leave
+
+  ' 항상 수행되는 교차 관심사 (include)
+  usecase "권한/자격 검증\n(로그인/소속 여부)" as UC_Authz
+  usecase "상태 검증\n(진행중/정산/제재 등)" as UC_Validate
+  usecase "역할/소유 리소스 정리\n(권한 회수, 일정/게시물 권한)" as UC_RoleCleanup
+  usecase "참여 데이터 정리\n(출석/과제/메모 등 정책)" as UC_DataCleanup
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "리더 탈퇴 시 위임 요구" as UC_DelegateRequired
+  usecase "대기자 자동 승격" as UC_WaitlistAuto
+  usecase "정산/환불 처리" as UC_Refund
+  usecase "재참가 쿨다운 규칙 적용" as UC_Cooldown
+  usecase "마지막 멤버 탈퇴 시 자동 마감/종료" as UC_AutoClose
+  usecase "탈퇴 사유/피드백 수집" as UC_Feedback
+}
+
+' === 실행자 연결 ===
+Member --> UC_Leave
+Leader --> UC_Leave
+Admin  --> UC_AutoClose
+
+' === include: 공통 교차 관심사 ===
+UC_Leave ..> UC_Authz       : <<include>>
+UC_Leave ..> UC_Validate    : <<include>>
+UC_Leave ..> UC_RoleCleanup : <<include>>
+UC_Leave ..> UC_DataCleanup : <<include>>
+UC_Leave ..> UC_Audit       : <<include>>
+UC_Leave ..> UC_Notify      : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Leave ..> UC_DelegateRequired : <<extend>>   '탈퇴자가 리더일 때
+UC_Leave ..> UC_WaitlistAuto     : <<extend>>   '정원 여유 + 대기자 존재
+UC_Leave ..> UC_Refund           : <<extend>>   '유료/보증금 존재 시
+UC_Leave ..> UC_Cooldown         : <<extend>>   '재참가 제한 정책
+UC_Leave ..> UC_AutoClose        : <<extend>>   '마지막 멤버 탈퇴
+UC_Leave ..> UC_Feedback         : <<extend>>   '선택적 설문/사유 입력
+
+' === 외부 시스템 연동 ===
+Audit <-- UC_Audit
+Noti  <-- UC_Notify
+Pay   <-- UC_Refund
+
+' === Notes ===
+note right of UC_Leave
+«requires auth»
+핵심 규칙:
+- 본인 소속 스터디에서만 탈퇴 가능
+- 리더는 위임 완료 후 탈퇴 가능
+- 유료/보증금은 정책에 따라 환불/정산
+- 대기자 존재 시 자동 승격 가능
+- 모든 변경은 감사 로그 및 알림 필수
+end note
+
+@enduml

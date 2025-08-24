@@ -1,0 +1,66 @@
+@startuml
+' 내 참가 현황 조회 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "일반 회원(본인)" as User
+actor "외부 캘린더(옵션)" as Calendar
+actor "알림 서비스(옵션)" as Noti
+
+' === System Boundary ===
+rectangle "내 참가 현황 조회" as MyParticipation {
+
+  ' 메인 UC
+  usecase "내 참가 현황 조회" as UC_View
+
+  ' 항상 수행되는 교차 관심사 (include)
+  usecase "권한/자격 검증\n(로그인/본인 식별)" as UC_Authz
+  usecase "데이터 집계/로드\n(신청/참여/완료/거절 등 상태별)" as UC_Load
+  usecase "필터/정렬/검색\n(상태/기간/스터디명)" as UC_Filter
+  usecase "페이지네이션/무한스크롤" as UC_Paging
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "신청 취소(대기 중)" as UC_Cancel
+  usecase "재신청/다른 회차 신청" as UC_Reapply
+  usecase "스터디 상세로 이동" as UC_OpenDetail
+  usecase "일정 보기/동기화" as UC_Calendar
+  usecase "리마인더 구독/해제" as UC_Reminder
+  usecase "내보내기(Excel/CSV)" as UC_Export
+}
+
+' === 실행자 연결 ===
+User --> UC_View
+
+' === include: 공통 처리 ===
+UC_View ..> UC_Authz  : <<include>>
+UC_View ..> UC_Load   : <<include>>
+UC_View ..> UC_Filter : <<include>>
+UC_View ..> UC_Paging : <<include>>
+
+' === extend: 선택 동작 ===
+UC_View ..> UC_Cancel     : <<extend>>   '대기 상태 항목만
+UC_View ..> UC_Reapply    : <<extend>>   '거절/만료 시 정책 허용 시
+UC_View ..> UC_OpenDetail : <<extend>>   '해당 스터디 상세로
+UC_View ..> UC_Calendar   : <<extend>>   '참여 중/예정 일정 있을 때
+UC_View ..> UC_Reminder   : <<extend>>   '세션 리마인더 구독/해제
+UC_View ..> UC_Export     : <<extend>>   '표시 목록 내보내기
+
+' === 외부 시스템 연동(옵션) ===
+Calendar <-- UC_Calendar
+Noti     <-- UC_Reminder
+
+' === Notes ===
+note right of MyParticipation
+«requires auth»
+표시 예시 상태:
+- 신청 대기 / 승인됨 / 거절됨
+- 참여 중 / 완료 / 탈퇴 / 추방
+필터·정렬로 빠른 탐색 지원
+end note
+
+@enduml

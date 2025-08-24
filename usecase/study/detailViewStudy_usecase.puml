@@ -1,0 +1,76 @@
+@startuml
+' 탐색 - 스터디 상세보기 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "게스트" as Guest
+actor "일반 회원" as User
+actor "스터디 리더" as Leader
+actor "추천 엔진(옵션)" as Reco
+
+' 역할 일반화
+User --|> Guest
+Leader --|> User
+
+' === System Boundary ===
+rectangle "탐색 - 스터디 상세보기" as StudyDetail {
+
+  ' 메인 UC
+  usecase "스터디 상세보기" as UC_Detail
+
+  ' 항상 수행되는 공통 처리 (include)
+  usecase "권한/가시성 검증\n(공개/비공개/차단)" as UC_Visibility
+  usecase "기본 정보/미디어 로드\n(제목·설명·태그·커버)" as UC_LoadInfo
+  usecase "참여/버튼 상태 계산\n(신청/탈퇴/관리)" as UC_ActionState
+  usecase "일정/공지/통계 로드" as UC_LoadSubs
+  usecase "조회수 증가/뷰 로그 기록" as UC_ViewLog
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "로그인 유도\n(비공개 접근 시)" as UC_LoginPrompt
+  usecase "참가 신청 바로가기" as UC_ApplyShortcut
+  usecase "즐겨찾기/북마크" as UC_Bookmark
+  usecase "공유(링크/소셜)" as UC_Share
+  usecase "신고/차단" as UC_Report
+  usecase "유사 스터디 추천" as UC_Recommend
+  usecase "리더용 관리 바로가기\n(수정/참가자/모집)" as UC_AdminShortcuts
+}
+
+' === 실행자 연결 ===
+Guest  --> UC_Detail
+User   --> UC_Detail
+Leader --> UC_Detail
+
+' === include: 공통 교차 관심사 ===
+UC_Detail ..> UC_Visibility : <<include>>
+UC_Detail ..> UC_LoadInfo   : <<include>>
+UC_Detail ..> UC_ActionState: <<include>>
+UC_Detail ..> UC_LoadSubs   : <<include>>
+UC_Detail ..> UC_ViewLog    : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Detail ..> UC_LoginPrompt   : <<extend>>   '비공개/권한 필요 시
+UC_Detail ..> UC_ApplyShortcut : <<extend>>   '신청 가능 상태일 때
+UC_Detail ..> UC_Bookmark      : <<extend>>   '로그인 사용자
+UC_Detail ..> UC_Share         : <<extend>>
+UC_Detail ..> UC_Report        : <<extend>>
+UC_Detail ..> UC_Recommend     : <<extend>>
+UC_Detail ..> UC_AdminShortcuts: <<extend>>   '리더에게만 노출
+
+' === 외부 시스템 연동(옵션) ===
+UC_Recommend --> Reco
+
+' === Notes ===
+note right of UC_Detail
+게스트도 열람 가능(공개 스터디)
+«requires auth» 항목:
+- 비공개 접근, 북마크, 신청 바로가기
+버튼 상태 예:
+- 신청, 대기중 취소, 탈퇴, 관리(리더)
+end note
+
+@enduml

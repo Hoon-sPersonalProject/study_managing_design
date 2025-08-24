@@ -1,0 +1,85 @@
+@startuml
+' 탐색 - 스터디 검색 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "게스트" as Guest
+actor "일반 회원" as User
+actor "검색 인덱서" as SearchIdx
+actor "추천 엔진(옵션)" as Reco
+actor "위치/지도 서비스(옵션)" as Geo
+actor "알림 서비스(옵션)" as Noti
+
+' 역할 일반화(선택)
+User --|> Guest
+
+' === System Boundary ===
+rectangle "탐색 - 스터디 검색" as StudySearch {
+
+  ' 메인 UC
+  usecase "스터디 검색" as UC_Search
+
+  ' 항상 수행되는 공통 처리 (include)
+  usecase "쿼리 파싱/정규화\n(토큰화/태그 표준화)" as UC_Parse
+  usecase "필터/정렬 처리\n(상태/지역/태그/모집여부)" as UC_Filter
+  usecase "권한/가시성 필터링\n(공개/비공개, 차단)" as UC_Visibility
+  usecase "페이지네이션/무한스크롤" as UC_Paging
+  usecase "검색 로그/분석 기록" as UC_SearchLog
+
+  ' 조건부/선택 흐름 (extend)
+  usecase "자동완성/검색 제안" as UC_Suggest
+  usecase "오타 교정/유사어" as UC_Spell
+  usecase "지도 보기(반경/거리)" as UC_Map
+  usecase "인기/개인화 추천 정렬" as UC_Reorder
+  usecase "상세보기로 이동" as UC_Detail
+  usecase "최근 검색/인기 태그" as UC_Trending
+  usecase "저장된 검색 구독" as UC_SavedAlert
+  usecase "북마크/즐겨찾기 추가" as UC_Bookmark
+}
+
+' === 실행자 연결 ===
+Guest --> UC_Search
+User  --> UC_Search
+
+' === include: 공통 교차 관심사 ===
+UC_Search ..> UC_Parse      : <<include>>
+UC_Search ..> UC_Filter     : <<include>>
+UC_Search ..> UC_Visibility : <<include>>
+UC_Search ..> UC_Paging     : <<include>>
+UC_Search ..> UC_SearchLog  : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Search ..> UC_Suggest    : <<extend>>   '입력 중 제안
+UC_Search ..> UC_Spell      : <<extend>>   '철자 보정/유사 질의
+UC_Search ..> UC_Map        : <<extend>>   '위치 기반 탐색
+UC_Search ..> UC_Reorder    : <<extend>>   '추천/인기순 정렬
+UC_Search ..> UC_Detail     : <<extend>>   '결과에서 상세 진입
+UC_Search ..> UC_Trending   : <<extend>>   '빈 입력/탭 진입 시
+UC_Search ..> UC_SavedAlert : <<extend>>   '필터 저장+알림 구독
+UC_Search ..> UC_Bookmark   : <<extend>>   '결과 카드 즐겨찾기
+
+' === 외부 시스템 연동 ===
+UC_Suggest  --> SearchIdx
+UC_Spell    --> SearchIdx
+UC_Reorder  --> Reco
+UC_Map      --> Geo
+UC_SearchLog --> SearchIdx
+UC_SavedAlert --> Noti
+
+' === Notes ===
+note right of StudySearch
+게스트/회원 모두 검색 가능
+«requires auth» 는 아님
+단, 비공개 스터디는 가시성 규칙에 따라 필터링
+저장된 검색 알림/즐겨찾기는 로그인 필요
+end note
+
+' === 관계(일관성): 상세보기는 검색의 선택적 확장 ===
+UC_Detail ..> UC_Search : <<extend>>
+
+@enduml
