@@ -1,0 +1,98 @@
+@startuml
+' 알림/방송 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "스터디 리더" as Leader
+actor "시스템 관리자" as Admin
+actor "일반 회원(수신자)" as Member
+actor "이벤트 버스(시스템 이벤트)" as EventBus
+actor "이메일 게이트웨이" as EmailGW
+actor "SMS/푸시 게이트웨이" as PushGW
+actor "웹훅/외부 시스템" as WebhookGW
+actor "스케줄러/잡" as Scheduler
+actor "감사 로그 수집기" as Audit
+
+' === System Boundary ===
+rectangle "알림/방송" as NotifyBroadcast {
+
+  ' --- 메인 UC ---
+  usecase "이벤트 알림 발송\n(단건/트랜잭션)" as UC_NotifyEvent
+  usecase "방송 발송\n(공지/대량/세그먼트)" as UC_Broadcast
+
+  ' --- 공통(항상 수행) ---
+  usecase "대상자 타게팅/세그먼트\n(필터/쿼리)" as UC_Target
+  usecase "수신 설정/옵트아웃 검증" as UC_Prefs
+  usecase "템플릿 렌더링\n(변수/머지태그)" as UC_Template
+  usecase "현지화/타임존 적용" as UC_Locale
+  usecase "레이트 리밋/스로틀링" as UC_Rate
+  usecase "큐/재시도/멱등 처리" as UC_Queue
+  usecase "전송 상태 추적/읽음 처리" as UC_Track
+  usecase "감사 로그 기록" as UC_Audit
+
+  ' --- 조건부/선택(extend) ---
+  usecase "예약 발송" as UC_Scheduled
+  usecase "다이제스트 묶음 발송" as UC_Digest
+  usecase "조용한 시간 지연(Quiet Hours)" as UC_Quiet
+  usecase "채널 폴백(대체 채널)" as UC_Failover
+  usecase "A/B 테스트(콘텐츠/제목)" as UC_ABTest
+  usecase "테스트 발송(내게 보내기)" as UC_TestSend
+}
+
+' === 실행자/트리거 ===
+Leader --> UC_Broadcast
+Admin  --> UC_Broadcast
+EventBus --> UC_NotifyEvent
+
+' 수신자는 직접 실행자는 아니지만 수신/읽음의 대상
+Member .. UC_Track
+
+' === include: 공통 교차 관심사 ===
+UC_NotifyEvent ..> UC_Target   : <<include>>
+UC_NotifyEvent ..> UC_Prefs    : <<include>>
+UC_NotifyEvent ..> UC_Template : <<include>>
+UC_NotifyEvent ..> UC_Locale   : <<include>>
+UC_NotifyEvent ..> UC_Rate     : <<include>>
+UC_NotifyEvent ..> UC_Queue    : <<include>>
+UC_NotifyEvent ..> UC_Track    : <<include>>
+UC_NotifyEvent ..> UC_Audit    : <<include>>
+
+UC_Broadcast ..> UC_Target     : <<include>>
+UC_Broadcast ..> UC_Prefs      : <<include>>
+UC_Broadcast ..> UC_Template   : <<include>>
+UC_Broadcast ..> UC_Locale     : <<include>>
+UC_Broadcast ..> UC_Rate       : <<include>>
+UC_Broadcast ..> UC_Queue      : <<include>>
+UC_Broadcast ..> UC_Track      : <<include>>
+UC_Broadcast ..> UC_Audit      : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Broadcast ..> UC_Scheduled : <<extend>>   '예약 공지
+UC_NotifyEvent ..> UC_Digest  : <<extend>>   '다이제스트 규칙 활성 시
+UC_NotifyEvent ..> UC_Quiet   : <<extend>>   '야간 금지 정책
+UC_Broadcast ..> UC_ABTest    : <<extend>>   '콘텐츠 실험
+UC_NotifyEvent ..> UC_Failover: <<extend>>   '채널 실패 시 대체
+UC_Broadcast ..> UC_TestSend  : <<extend>>   '발송 전 점검
+
+' === 외부 시스템 연동 ===
+UC_Queue --> EmailGW
+UC_Queue --> PushGW
+UC_Queue --> WebhookGW
+Scheduler <-- UC_Scheduled
+UC_Audit --> Audit
+
+' === Notes ===
+note right of NotifyBroadcast
+«requires auth» (발송자)
+- 리더/관리자만 방송 발송 가능
+- 이벤트 알림은 시스템 이벤트로 자동 트리거
+- 수신자 선호/옵트아웃을 반드시 준수
+- 전송/읽음 상태 추적 및 감사 로그 필수
+end note
+
+@enduml
