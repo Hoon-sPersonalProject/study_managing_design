@@ -1,0 +1,100 @@
+@startuml
+title 스터디 생성 시퀀스 다이어그램
+
+actor "일반 회원" as User
+participant "StudyController" as Controller
+participant "StudyService" as Service
+participant "Study" as StudyDomain
+participant "StudyRepository" as Repository
+participant "NotificationService" as NotifyService
+participant "SearchService" as SearchService
+participant "AuditService" as AuditService
+database "Database" as DB
+queue "SearchIndex" as SearchIdx
+
+== 스터디 생성 요청 ==
+User -> Controller: POST /api/studies\n(CreateStudyRequest)
+activate Controller
+
+Controller -> Controller: validateRequest(request)
+note right: 필수 필드, 길이 제한 검증
+
+Controller -> Service: createStudy(request)
+activate Service
+
+== 권한 및 정책 검증 ==
+Service -> Service: validateUserPermission(userId)
+note right: 로그인 상태, 생성 권한 확인
+
+Service -> Service: validateQuota(userId)
+note right: 리더 생성 한도 체크
+
+Service -> Service: validateContent(request)
+note right: 금지어, 정책 검증
+
+== 스터디 도메인 객체 생성 ==
+Service -> StudyDomain: create(request, leaderId)
+activate StudyDomain
+
+StudyDomain -> StudyDomain: validateBusinessRules()
+note right: 정원, 태그, 공개범위 등 검증
+
+StudyDomain -> StudyDomain: normalizeData()
+note right: 태그 표준화, 지역 정규화
+deactivate StudyDomain
+
+== 데이터 저장 ==
+Service -> Repository: save(study)
+activate Repository
+Repository -> DB: INSERT INTO study
+DB --> Repository: study_id
+Repository --> Service: savedStudy
+deactivate Repository
+
+== 리더 멤버십 생성 ==
+Service -> Service: createLeaderMembership(studyId, userId)
+Service -> Repository: saveStudyMember(leaderMember)
+Repository -> DB: INSERT INTO study_member
+DB --> Repository: success
+
+== 후처리 작업 ==
+par 병렬 처리
+    Service -> SearchService: indexStudy(study)
+    activate SearchService
+    SearchService -> SearchIdx: index study data
+    SearchIdx --> SearchService: indexed
+    deactivate SearchService
+'and
+    Service -> NotifyService: sendStudyCreatedNotification(study)
+    activate NotifyService
+    NotifyService -> NotifyService: createNotification(leaderId, STUDY_CREATED)
+    deactivate NotifyService
+'and
+    Service -> AuditService: logStudyCreation(userId, studyId)
+    activate AuditService
+    AuditService -> DB: INSERT INTO audit_log
+    deactivate AuditService
+end
+
+Service --> Controller: StudyResponse
+deactivate Service
+
+Controller --> User: 201 Created\n{study: StudyResponse}
+deactivate Controller
+
+== 예외 처리 ==
+alt 검증 실패
+    Service --> Controller: ValidationException
+    Controller --> User: 400 Bad Request\n{error: "validation failed"}
+else 권한 없음
+    Service --> Controller: AccessDeniedException
+    Controller --> User: 403 Forbidden\n{error: "permission denied"}
+else 생성 한도 초과
+    Service --> Controller: QuotaExceededException
+    Controller --> User: 429 Too Many Requests\n{error: "quota exceeded"}
+else 시스템 오류
+    Service --> Controller: InternalServerException
+    Controller --> User: 500 Internal Server Error\n{error: "system error"}
+end
+
+@enduml

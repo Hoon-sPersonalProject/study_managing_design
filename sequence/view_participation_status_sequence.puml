@@ -1,0 +1,170 @@
+@startuml
+title 내 참가 현황 조회 시퀀스 다이어그램
+
+actor "일반 회원" as User
+participant "MemberController" as Controller
+participant "MembershipService" as MemberService
+participant "ApplicationService" as AppService
+participant "StudyRepository" as StudyRepo
+participant "ApplicationRepository" as AppRepo
+participant "StudyMemberRepository" as MemberRepo
+participant "CacheService" as CacheService
+database "Database" as DB
+database "Cache" as Cache
+
+== 내 참가 현황 조회 요청 ==
+User -> Controller: GET /api/my/participations?\nstatus=all&page=0&size=10&sort=appliedAt,desc
+activate Controller
+
+Controller -> Controller: validateAuthentication()
+note right: JWT 토큰 검증, 사용자 인증
+
+Controller -> Controller: parseFilterCriteria(params)
+note right: 상태, 페이징, 정렬 조건 파싱
+
+Controller -> MemberService: getMyParticipationStatus(userId, criteria)
+activate MemberService
+
+== 캐시 확인 ==
+MemberService -> CacheService: getCachedParticipationStatus(userId, criteriaHash)
+activate CacheService
+CacheService -> Cache: GET participation_status:{userId}:{hash}
+alt 캐시 히트 (최근 조회)
+    Cache --> CacheService: cached status list
+    CacheService --> MemberService: List<ParticipationStatus>
+    note right: 캐시된 결과 반환 (TTL: 2분)
+else 캐시 미스
+    CacheService --> MemberService: null
+
+    == 참여 중인 스터디 조회 ==
+    MemberService -> MemberRepo: findByUserId(userId)
+    activate MemberRepo
+    MemberRepo -> DB: SELECT sm.*, s.* FROM study_member sm\nJOIN study s ON sm.study_id = s.id\nWHERE sm.user_id = ?
+    DB --> MemberRepo: joined studies with member info
+    MemberRepo --> MemberService: List<StudyMember>
+    deactivate MemberRepo
+
+    == 신청 내역 조회 ==
+    MemberService -> AppService: getMyApplications(userId, criteria)
+    activate AppService
+    AppService -> AppRepo: findByApplicantId(userId, pageable)
+    activate AppRepo
+    AppRepo -> DB: SELECT a.*, s.* FROM application a\nJOIN study s ON a.study_id = s.id\nWHERE a.applicant_id = ?\nORDER BY a.applied_at DESC
+    DB --> AppRepo: application history with study info
+    AppRepo --> AppService: List<Application>
+    deactivate AppRepo
+    AppService --> MemberService: List<Application>
+    deactivate AppService
+
+    == 참가 현황 통합 및 분류 ==
+    MemberService -> MemberService: mergeParticipationData(studyMembers, applications)
+    note right: 중복 제거, 상태별 분류:\n- 참여중 (ACTIVE_MEMBER)\n- 신청 대기 (PENDING)\n- 승인됨 (APPROVED)\n- 거절됨 (REJECTED)\n- 탈퇴함 (LEFT)\n- 추방됨 (KICKED)
+
+    == 추가 정보 보강 ==
+    loop for each participation
+        par 병렬 조회
+            MemberService -> StudyRepo: getStudyLeaderInfo(studyId)
+            StudyRepo -> DB: SELECT u.nickname, u.profile_image_url\nFROM user u JOIN study s ON u.id = s.leader_id\nWHERE s.id = ?
+'        and
+            MemberService -> MemberService: calculateAvailableActions(participation)
+            note right: 상태별 가능한 액션:\n- 취소 (대기중)\n- 재신청 (거절됨, 정책 허용시)\n- 탈퇴 (참여중)
+'        and
+            MemberService -> StudyRepo: getUpcomingSchedules(studyId, limit=3)
+            StudyRepo -> DB: SELECT * FROM schedule\nWHERE study_id = ? AND start_time > NOW()\nORDER BY start_time LIMIT 3
+        end
+    end
+
+    == 필터링 및 정렬 ==
+    MemberService -> MemberService: applyFilters(participations, criteria)
+    note right: 상태 필터 (전체/참여중/신청중/완료 등)
+
+    MemberService -> MemberService: applySorting(participations, criteria)
+    note right: 정렬 (신청일시/수정일시/스터디명/상태별)
+
+    MemberService -> MemberService: applyPagination(participations, pageable)
+
+    == 결과 캐싱 ==
+    MemberService -> CacheService: cacheParticipationStatus(userId, criteriaHash, result, 2min)
+    CacheService -> Cache: SET participation_status:{userId}:{hash} with TTL
+end
+deactivate CacheService
+
+== 응답 변환 ==
+MemberService -> MemberService: convertToParticipationResponses(participations)
+note right: 민감 정보 제거, 클라이언트 친화적 형태로 변환
+
+MemberService --> Controller: PageResponse<ParticipationResponse>
+deactivate MemberService
+
+Controller --> User: 200 OK\n{\n  "participations": [...],\n  "summary": {\n    "totalCount": 15,\n    "activeCount": 3,\n    "pendingCount": 1,\n    "completedCount": 11\n  },\n  "pagination": {...}\n}
+deactivate Controller
+
+== 상태별 필터 조회 ==
+User -> Controller: GET /api/my/participations?status=pending
+activate Controller
+
+Controller -> MemberService: getMyParticipationStatus(userId, {status: PENDING})
+activate MemberService
+
+MemberService -> CacheService: getCachedParticipationStatus(userId, "pending")
+alt 캐시된 대기 목록 있음
+    CacheService --> MemberService: pending participations
+else 캐시 미스
+    MemberService -> AppRepo: findPendingApplicationsByUserId(userId)
+    AppRepo -> DB: SELECT * FROM application a\nJOIN study s ON a.study_id = s.id\nWHERE a.applicant_id = ? AND a.status = 'PENDING'
+    DB --> AppRepo: pending applications
+    AppRepo --> MemberService: List<Application>
+
+    MemberService -> MemberService: enrichWithStudyInfo(applications)
+    MemberService -> CacheService: cachePendingParticipations(userId, result, 1min)
+end
+
+MemberService --> Controller: List<ParticipationResponse>
+deactivate MemberService
+
+Controller --> User: 200 OK\n{pending participations}
+deactivate Controller
+
+== 신청 취소 (대기 중인 경우) ==
+User -> Controller: DELETE /api/my/participations/{applicationId}
+activate Controller
+
+Controller -> AppService: cancelApplication(applicationId, userId)
+activate AppService
+
+AppService -> AppService: validateCancellationPermission(applicationId, userId)
+note right: 본인 신청 & PENDING 상태 확인
+
+AppService -> AppRepo: findById(applicationId)
+AppRepo -> DB: SELECT * FROM application WHERE id = ?
+DB --> AppRepo: application
+AppRepo --> AppService: Application
+
+AppService -> AppService: cancelApplication(application)
+note right: 상태를 CANCELLED로 변경
+
+AppService -> AppRepo: save(cancelledApplication)
+AppRepo -> DB: UPDATE application SET status = 'CANCELLED'
+
+== 캐시 무효화 ==
+AppService -> CacheService: evictParticipationCache(userId)
+CacheService -> Cache: DEL participation_status:{userId}:*
+
+AppService --> Controller: success
+deactivate AppService
+
+Controller --> User: 200 OK\n{message: "application cancelled"}
+deactivate Controller
+
+== 예외 처리 ==
+alt 인증 실패
+    Controller --> User: 401 Unauthorized\n{error: "authentication required"}
+else 권한 없음 (타인 신청 취소 시도)
+    AppService --> Controller: AccessDeniedException
+    Controller --> User: 403 Forbidden\n{error: "not your application"}
+else 취소 불가 상태 (이미 승인/거절됨)
+    AppService --> Controller: InvalidStateException
+    Controller --> User: 400 Bad Request\n{error: "cannot cancel processed application"}
+end
+
+@enduml

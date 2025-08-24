@@ -1,0 +1,218 @@
+@startuml
+title 회원가입 시퀀스 다이어그램
+
+actor "게스트" as Guest
+participant "AuthController" as Controller
+participant "AuthenticationService" as AuthService
+participant "User" as UserDomain
+participant "UserRepository" as UserRepo
+participant "EmailService" as EmailService
+participant "NotificationService" as NotifyService
+participant "AuditService" as AuditService
+participant "CacheService" as CacheService
+database "Database" as DB
+'external "EmailGateway" as EmailGW
+
+== 회원가입 요청 ==
+Guest -> Controller: POST /api/auth/register\n{\n  "email": "user@example.com",\n  "password": "password123",\n  "nickname": "닉네임",\n  "profileImageUrl": "https://..."\n}
+activate Controller
+
+Controller -> Controller: validateRequest(registerRequest)
+note right: - 필수 필드 검증\n- 이메일 형식 검증\n- 비밀번호 강도 검증\n- 닉네임 길이/형식 검증
+
+== 중복 검증 ==
+Controller -> AuthService: register(registerRequest)
+activate AuthService
+
+AuthService -> UserRepo: findByEmail(email)
+activate UserRepo
+UserRepo -> DB: SELECT * FROM user WHERE email = ?
+alt 이미 존재하는 이메일
+    DB --> UserRepo: user data
+    UserRepo --> AuthService: Optional<User>
+    AuthService --> Controller: EmailAlreadyExistsException
+    Controller --> Guest: 409 Conflict\n{error: "email already exists"}
+else 사용 가능한 이메일
+    DB --> UserRepo: empty result
+    UserRepo --> AuthService: Optional.empty()
+    deactivate UserRepo
+
+    == 닉네임 중복 검증 ==
+    AuthService -> UserRepo: findByNickname(nickname)
+    activate UserRepo
+    UserRepo -> DB: SELECT * FROM user WHERE nickname = ?
+    alt 중복 닉네임
+        DB --> UserRepo: user data
+        UserRepo --> AuthService: Optional<User>
+        AuthService --> Controller: NicknameAlreadyExistsException
+        Controller --> Guest: 409 Conflict\n{error: "nickname already exists"}
+    else 사용 가능한 닉네임
+        DB --> UserRepo: empty result
+        UserRepo --> AuthService: Optional.empty()
+        deactivate UserRepo
+    end
+end
+
+== 사용자 도메인 객체 생성 ==
+AuthService -> AuthService: encryptPassword(password)
+note right: BCrypt 또는 다른 해시 알고리즘으로\n비밀번호 암호화
+
+AuthService -> UserDomain: register(email, encryptedPassword, nickname, profileImageUrl)
+activate UserDomain
+
+UserDomain -> UserDomain: validateUserData()
+note right: - 이메일 형식 재검증\n- 닉네임 정책 검증\n- 프로필 이미지 URL 유효성
+
+UserDomain -> UserDomain: generateUserId()
+UserDomain -> UserDomain: setInitialStatus(ACTIVE)
+UserDomain -> UserDomain: setCreatedAt(now())
+
+deactivate UserDomain
+
+== 사용자 저장 ==
+AuthService -> UserRepo: save(user)
+activate UserRepo
+UserRepo -> DB: INSERT INTO user\n(email, password, nickname, profile_image_url, status, created_at)
+DB --> UserRepo: user_id
+UserRepo --> AuthService: savedUser
+deactivate UserRepo
+
+== 이메일 인증 처리 (선택적) ==
+alt 이메일 인증 필요한 정책
+    AuthService -> AuthService: generateEmailVerificationToken(userId)
+
+    AuthService -> CacheService: storeVerificationToken(token, userId, 24hours)
+    activate CacheService
+    CacheService -> CacheService: set("verify_token:" + token, userId, TTL=24h)
+    deactivate CacheService
+
+    AuthService -> EmailService: sendVerificationEmail(user, verificationToken)
+    activate EmailService
+    EmailService -> EmailService: buildVerificationEmailContent(user, token)
+    EmailService -> EmailGW: sendEmail(to, subject, htmlContent)
+    activate EmailGW
+    EmailGW --> EmailService: delivery status
+    deactivate EmailGW
+    EmailService --> AuthService: email sent
+    deactivate EmailService
+
+    note over AuthService: 사용자 상태를 PENDING_VERIFICATION으로 설정
+    AuthService -> UserRepo: updateStatus(userId, PENDING_VERIFICATION)
+    UserRepo -> DB: UPDATE user SET status = 'PENDING_VERIFICATION' WHERE id = ?
+end
+
+== 환영 알림 발송 ==
+AuthService -> NotifyService: sendWelcomeNotification(userId)
+activate NotifyService
+NotifyService -> NotifyService: createWelcomeNotification(userId)
+note right: 플랫폼 사용법, 첫 스터디 참여 가이드 등
+deactivate NotifyService
+
+== 감사 로그 기록 ==
+AuthService -> AuditService: logUserRegistration(userId, email, registrationMethod)
+activate AuditService
+AuditService -> DB: INSERT INTO audit_log\n(event_type, user_id, details, ip_address, user_agent)
+deactivate AuditService
+
+AuthService --> Controller: RegisterResult\n{userId, status, requiresEmailVerification}
+deactivate AuthService
+
+Controller --> Guest: 201 Created\n{\n  "message": "회원가입이 완료되었습니다",\n  "userId": 12345,\n  "requiresEmailVerification": true\n}
+deactivate Controller
+
+== 이메일 인증 완료 ==
+alt 이메일 인증이 필요한 경우
+    Guest -> Controller: GET /api/auth/verify-email?token=abc123
+    activate Controller
+
+    Controller -> AuthService: verifyEmail(token)
+    activate AuthService
+
+    AuthService -> CacheService: getVerificationToken(token)
+    activate CacheService
+    CacheService -> CacheService: get("verify_token:" + token)
+    alt 토큰 존재 및 유효
+        CacheService --> AuthService: userId
+    else 토큰 만료 또는 없음
+        CacheService --> AuthService: null
+        AuthService --> Controller: InvalidTokenException
+        Controller --> Guest: 400 Bad Request\n{error: "invalid or expired token"}
+    end
+    deactivate CacheService
+
+    AuthService -> UserRepo: findById(userId)
+    UserRepo -> DB: SELECT * FROM user WHERE id = ?
+    DB --> UserRepo: user data
+    UserRepo --> AuthService: User
+
+    AuthService -> UserDomain: verifyEmail()
+    activate UserDomain
+    UserDomain -> UserDomain: changeStatus(ACTIVE)
+    UserDomain -> UserDomain: setEmailVerifiedAt(now())
+    deactivate UserDomain
+
+    AuthService -> UserRepo: save(verifiedUser)
+    UserRepo -> DB: UPDATE user SET status = 'ACTIVE', email_verified_at = NOW()
+
+    == 토큰 무효화 ==
+    AuthService -> CacheService: deleteVerificationToken(token)
+    CacheService -> CacheService: delete("verify_token:" + token)
+
+    == 인증 완료 알림 ==
+    AuthService -> NotifyService: sendEmailVerificationCompleteNotification(userId)
+
+    AuthService --> Controller: verification success
+    deactivate AuthService
+
+    Controller --> Guest: 200 OK\n{\n  "message": "이메일 인증이 완료되었습니다. 로그인해주세요."\n}
+    deactivate Controller
+end
+
+== 프로필 이미지 업로드 (선택적) ==
+alt 프로필 이미지 업로드
+    Guest -> Controller: POST /api/auth/profile-image\n(multipart/form-data)
+    activate Controller
+
+    Controller -> Controller: validateImageFile(file)
+    note right: - 파일 크기 제한\n- 이미지 형식 검증\n- 악성 파일 검사
+
+    Controller -> AuthService: uploadProfileImage(userId, imageFile)
+    activate AuthService
+
+    AuthService -> AuthService: resizeAndOptimizeImage(imageFile)
+    note right: 이미지 리사이징 및 최적화
+
+    AuthService -> AuthService: uploadToStorage(optimizedImage)
+    note right: S3, 클라우드 스토리지 등에 업로드
+
+    AuthService -> UserRepo: updateProfileImageUrl(userId, imageUrl)
+    UserRepo -> DB: UPDATE user SET profile_image_url = ? WHERE id = ?
+
+    AuthService --> Controller: imageUrl
+    deactivate AuthService
+
+    Controller --> Guest: 200 OK\n{profileImageUrl: "https://..."}
+    deactivate Controller
+end
+
+== 예외 처리 ==
+alt 유효성 검증 실패
+    Controller --> Guest: 400 Bad Request\n{\n  "error": "validation failed",\n  "details": [\n    {"field": "email", "message": "invalid format"},\n    {"field": "password", "message": "too weak"}\n  ]\n}
+else 이메일 중복
+    AuthService --> Controller: EmailAlreadyExistsException
+    Controller --> Guest: 409 Conflict\n{error: "email already exists"}
+else 닉네임 중복
+    AuthService --> Controller: NicknameAlreadyExistsException
+    Controller --> Guest: 409 Conflict\n{error: "nickname already exists"}
+else 데이터베이스 오류
+    UserRepo --> AuthService: DataAccessException
+    AuthService --> Controller: RegistrationException
+    Controller --> Guest: 500 Internal Server Error\n{error: "registration failed"}
+else 이메일 발송 실패
+    EmailGW --> EmailService: delivery failed
+    EmailService --> AuthService: email delivery failed
+    note over AuthService: 사용자는 생성되지만\n수동 인증 또는 재발송 필요
+    AuthService --> Controller: RegistrationResult\n{status: "created_but_email_failed"}
+end
+
+@enduml

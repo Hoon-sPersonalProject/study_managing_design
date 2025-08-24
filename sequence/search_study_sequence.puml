@@ -1,0 +1,168 @@
+@startuml
+title 스터디 검색 및 상세보기 시퀀스 다이어그램
+
+actor "사용자" as User
+participant "StudyController" as Controller
+participant "StudyService" as Service
+participant "StudyRepository" as Repository
+participant "SearchService" as SearchService
+participant "CacheService" as CacheService
+participant "AuditService" as AuditService
+database "Database" as DB
+database "SearchIndex" as SearchIdx
+database "Cache" as Cache
+
+== 스터디 검색 ==
+User -> Controller: GET /api/studies/search?\nkeyword=spring&region=seoul&page=0&size=10
+activate Controller
+
+Controller -> Controller: parseSearchCriteria(params)
+note right: 쿼리 파라미터를 SearchCriteria로 변환
+
+Controller -> Service: searchStudies(criteria)
+activate Service
+
+== 검색 로그 기록 ==
+Service -> AuditService: logSearchQuery(userId, criteria)
+AuditService -> DB: INSERT INTO search_log
+
+== 캐시 확인 ==
+Service -> CacheService: getCachedSearchResult(criteriaKey)
+activate CacheService
+CacheService -> Cache: GET search_result:{hash}
+alt 캐시 히트
+    Cache --> CacheService: cached result
+    CacheService --> Service: PageResponse<Study>
+    note right: 캐시된 결과 반환
+else 캐시 미스
+    CacheService --> Service: null
+
+    == 검색 실행 ==
+    Service -> SearchService: searchStudies(criteria)
+    activate SearchService
+
+    SearchService -> SearchService: parseAndNormalizeQuery(criteria)
+    note right: 키워드 토큰화, 태그 표준화
+
+    SearchService -> SearchIdx: search with filters
+    SearchIdx --> SearchService: study ids and scores
+
+    SearchService -> Repository: findByIds(studyIds)
+    activate Repository
+    Repository -> DB: SELECT * FROM study WHERE id IN (?)
+    DB --> Repository: study list
+    Repository --> SearchService: List<Study>
+    deactivate Repository
+
+    SearchService -> SearchService: applyVisibilityFilter(studies, userId)
+    note right: 공개/비공개, 차단 필터링
+
+    SearchService -> SearchService: applySorting(studies, criteria)
+    note right: 인기도, 최신순, 관련도 정렬
+
+    SearchService --> Service: PageResponse<Study>
+    deactivate SearchService
+
+    == 검색 결과 캐싱 ==
+    Service -> CacheService: cacheSearchResult(criteriaKey, result, 10min)
+    CacheService -> Cache: SET search_result:{hash} with TTL
+end
+deactivate CacheService
+
+== 응답 변환 ==
+Service -> Service: convertToStudyResponses(studies)
+
+Service --> Controller: PageResponse<StudyResponse>
+deactivate Service
+
+Controller --> User: 200 OK\n{studies: [StudyResponse], pagination: {...}}
+deactivate Controller
+
+== 스터디 상세보기 ==
+User -> Controller: GET /api/studies/{studyId}
+activate Controller
+
+Controller -> Service: getStudyDetail(studyId, userId)
+activate Service
+
+== 캐시 확인 ==
+Service -> CacheService: getCachedStudyDetail(studyId)
+activate CacheService
+CacheService -> Cache: GET study_detail:{studyId}
+alt 캐시 히트
+    Cache --> CacheService: cached detail
+    CacheService --> Service: StudyDetail
+else 캐시 미스
+    CacheService --> Service: null
+
+    == 스터디 정보 조회 ==
+    Service -> Repository: findById(studyId)
+    activate Repository
+    Repository -> DB: SELECT * FROM study WHERE id = ?
+    DB --> Repository: study data
+    Repository --> Service: Study
+    deactivate Repository
+
+    == 가시성 검증 ==
+    Service -> Service: validateVisibility(study, userId)
+    note right: 공개/비공개, 차단 상태 확인
+
+    alt 비공개 스터디 && 권한 없음
+        Service --> Controller: AccessDeniedException
+        Controller --> User: 403 Forbidden\n{error: "private study"}
+    end
+
+    == 상세 정보 구성 ==
+    par 병렬 조회
+        Service -> Repository: getStudyLeader(study.leaderId)
+        Repository -> DB: SELECT * FROM user WHERE id = ?
+        DB --> Repository: leader info
+'    and
+        Service -> Repository: getStudyMemberCount(studyId)
+        Repository -> DB: SELECT COUNT(*) FROM study_member WHERE study_id = ?
+        DB --> Repository: member count
+'    and
+        Service -> Service: checkUserApplicationStatus(studyId, userId)
+        note right: 사용자의 신청/참여 상태 확인
+'    and
+        Service -> Service: determineAvailableActions(study, userId)
+        note right: 신청/탈퇴/관리 버튼 상태 계산
+    end
+
+    Service -> Service: buildStudyDetail(study, leader, memberCount, status, actions)
+
+    == 상세 정보 캐싱 ==
+    Service -> CacheService: cacheStudyDetail(studyId, detail, 5min)
+    CacheService -> Cache: SET study_detail:{studyId} with TTL
+end
+deactivate CacheService
+
+== 조회수 증가 ==
+Service -> Service: incrementViewCount(studyId, userId)
+Service -> Repository: updateViewCount(studyId)
+Repository -> DB: UPDATE study SET view_count = view_count + 1
+
+== 조회 로그 기록 ==
+Service -> AuditService: logStudyView(userId, studyId)
+AuditService -> DB: INSERT INTO view_log
+
+Service --> Controller: StudyDetail
+deactivate Service
+
+Controller --> User: 200 OK\n{study: StudyDetail}
+deactivate Controller
+
+== 예외 처리 ==
+alt 스터디 없음
+    Service --> Controller: EntityNotFoundException
+    Controller --> User: 404 Not Found\n{error: "study not found"}
+else 접근 권한 없음
+    Service --> Controller: AccessDeniedException
+    Controller --> User: 403 Forbidden\n{error: "access denied"}
+else 검색 오류
+    SearchService --> Service: SearchException
+    Service --> Controller: SearchException
+    Controller --> User: 500 Internal Server Error\n{error: "search failed"}
+end
+
+@enduml

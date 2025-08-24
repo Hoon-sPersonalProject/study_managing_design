@@ -1,0 +1,317 @@
+@startuml
+title 관리자 사용자 관리 시퀀스 다이어그램
+
+actor "시스템 관리자" as Admin
+participant "AdminController" as Controller
+participant "UserService" as UserService
+participant "ModerationService" as ModerationService
+participant "User" as UserDomain
+participant "Sanction" as SanctionDomain
+participant "UserRepository" as UserRepo
+participant "SanctionRepository" as SanctionRepo
+participant "NotificationService" as NotifyService
+participant "AuditService" as AuditService
+participant "CacheService" as CacheService
+database "Database" as DB
+
+== 사용자 검색/조회 ==
+Admin -> Controller: GET /api/admin/users?\nsearch=email@domain.com&status=active&page=0&size=20
+activate Controller
+
+Controller -> Controller: validateAdminPermission(adminId)
+note right: JWT에서 추출한 관리자 ID로\n관리자 권한 검증
+
+Controller -> UserService: searchUsers(searchCriteria)
+activate UserService
+
+UserService -> UserRepo: findUsersWithCriteria(criteria)
+activate UserRepo
+UserRepo -> DB: SELECT u.*, COUNT(s.id) as study_count,\nCOUNT(r.id) as report_count\nFROM user u\nLEFT JOIN study s ON u.id = s.leader_id\nLEFT JOIN report r ON u.id = r.reported_id\nWHERE u.email LIKE ? AND u.status = ?\nGROUP BY u.id\nORDER BY u.created_at DESC\nLIMIT ? OFFSET ?
+DB --> UserRepo: user list with statistics
+UserRepo --> UserService: PageResponse<UserWithStats>
+deactivate UserRepo
+
+UserService --> Controller: PageResponse<UserResponse>
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{\n  "users": [\n    {\n      "id": 12345,\n      "email": "user@example.com",\n      "nickname": "사용자",\n      "status": "ACTIVE",\n      "studyCount": 3,\n      "reportCount": 1,\n      "lastLoginAt": "2024-08-20T10:30:00Z"\n    }\n  ],\n  "pagination": {...}\n}
+deactivate Controller
+
+== 사용자 상세 정보 조회 ==
+Admin -> Controller: GET /api/admin/users/{userId}
+activate Controller
+
+Controller -> UserService: getUserDetailForAdmin(userId)
+activate UserService
+
+par 병렬 조회
+    UserService -> UserRepo: findById(userId)
+    activate UserRepo
+    UserRepo -> DB: SELECT * FROM user WHERE id = ?
+    DB --> UserRepo: user data
+    UserRepo --> UserService: User
+    deactivate UserRepo
+'and
+    UserService -> UserRepo: getUserStudyHistory(userId)
+    UserRepo -> DB: SELECT s.*, sm.role, sm.joined_at\nFROM study s\nJOIN study_member sm ON s.id = sm.study_id\nWHERE sm.user_id = ?\nORDER BY sm.joined_at DESC
+    DB --> UserRepo: study participation history
+'and
+    UserService -> SanctionRepo: findByUserId(userId)
+    activate SanctionRepo
+    SanctionRepo -> DB: SELECT * FROM sanction\nWHERE user_id = ?\nORDER BY imposed_at DESC
+    DB --> SanctionRepo: sanction history
+    SanctionRepo --> UserService: List<Sanction>
+    deactivate SanctionRepo
+'and
+    UserService -> UserRepo: getReportHistory(userId)
+    UserRepo -> DB: SELECT r.*, u.nickname as reporter_name\nFROM report r\nJOIN user u ON r.reporter_id = u.id\nWHERE r.reported_id = ?\nORDER BY r.created_at DESC
+    DB --> UserRepo: report history
+end
+
+UserService -> UserService: buildUserDetailForAdmin(user, studyHistory, sanctions, reports)
+
+UserService --> Controller: AdminUserDetailResponse
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{\n  "user": {...},\n  "studyHistory": [...],\n  "sanctionHistory": [...],\n  "reportHistory": [...],\n  "statistics": {\n    "totalStudiesCreated": 5,\n    "totalStudiesJoined": 12,\n    "totalReportsReceived": 2,\n    "activeSanctions": 0\n  }\n}
+deactivate Controller
+
+== 계정 정지 ==
+Admin -> Controller: PUT /api/admin/users/{userId}/suspend\n{\n  "reason": "스팸 게시물 반복 작성",\n  "duration": "P7D",\n  "notifyUser": true\n}
+activate Controller
+
+Controller -> UserService: suspendUser(userId, adminId, suspensionRequest)
+activate UserService
+
+== 정지 권한 및 상태 검증 ==
+UserService -> UserService: validateSuspensionPermission(adminId, userId)
+note right: - 관리자 권한 확인\n- 자기 자신 정지 방지\n- 상위 관리자 정지 방지
+
+UserService -> UserRepo: findById(userId)
+activate UserRepo
+UserRepo -> DB: SELECT * FROM user WHERE id = ?
+DB --> UserRepo: user data
+UserRepo --> UserService: User
+deactivate UserRepo
+
+alt 이미 정지된 사용자
+    UserService --> Controller: AlreadySuspendedException
+    Controller --> Admin: 400 Bad Request\n{error: "user already suspended"}
+end
+
+== 사용자 상태 업데이트 ==
+UserService -> UserDomain: suspend(reason, duration)
+activate UserDomain
+UserDomain -> UserDomain: changeStatus(SUSPENDED)
+UserDomain -> UserDomain: setSuspensionDetails(reason, endTime)
+deactivate UserDomain
+
+UserService -> UserRepo: save(suspendedUser)
+activate UserRepo
+UserRepo -> DB: UPDATE user\nSET status = 'SUSPENDED',\n    suspended_until = ?,\n    suspended_reason = ?,\n    suspended_at = NOW()\nWHERE id = ?
+DB --> UserRepo: success
+UserRepo --> UserService: updatedUser
+deactivate UserRepo
+
+== 제재 레코드 생성 ==
+UserService -> ModerationService: createSuspensionSanction(userId, adminId, reason, duration)
+activate ModerationService
+
+ModerationService -> SanctionDomain: impose(userId, TEMPORARY_SUSPENSION, reason, duration)
+activate SanctionDomain
+SanctionDomain -> SanctionDomain: calculateEndTime(duration)
+SanctionDomain -> SanctionDomain: setImposedBy(adminId)
+deactivate SanctionDomain
+
+ModerationService -> SanctionRepo: save(sanction)
+activate SanctionRepo
+SanctionRepo -> DB: INSERT INTO sanction\n(user_id, type, reason, start_time, end_time, imposed_by)
+DB --> SanctionRepo: sanction_id
+SanctionRepo --> ModerationService: savedSanction
+deactivate SanctionRepo
+
+ModerationService --> UserService: suspensionSanction
+deactivate ModerationService
+
+== 활성 세션 무효화 ==
+UserService -> CacheService: invalidateAllUserSessions(userId)
+activate CacheService
+CacheService -> CacheService: deletePattern("user_session:" + userId + ":*")
+note right: 해당 사용자의 모든 활성 세션 무효화
+deactivate CacheService
+
+== 진행 중인 스터디 활동 제한 ==
+UserService -> UserService: restrictStudyActivities(userId)
+note right: - 리더인 스터디의 임시 관리 위임\n- 신청 대기 중인 스터디에서 제외\n- 새 스터디 생성 차단
+
+== 사용자 알림 발송 ==
+alt 사용자에게 알림 발송 설정된 경우
+    UserService -> NotifyService: sendSuspensionNotification(userId, reason, endTime)
+    activate NotifyService
+    NotifyService -> NotifyService: createSuspensionNotification(userId, suspensionDetails)
+    deactivate NotifyService
+end
+
+== 감사 로그 기록 ==
+UserService -> AuditService: logUserSuspension(userId, adminId, reason, duration)
+activate AuditService
+AuditService -> DB: INSERT INTO audit_log\n(event_type, target_user_id, admin_id, details, created_at)
+deactivate AuditService
+
+UserService --> Controller: SuspensionResult {suspendedUntil, sanctionId}
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{\n  "message": "사용자가 정지되었습니다.",\n  "suspendedUntil": "2024-08-27T23:59:59Z",\n  "sanctionId": "SANC-2024-001234"\n}
+deactivate Controller
+
+== 계정 정지 해제 ==
+Admin -> Controller: PUT /api/admin/users/{userId}/unsuspend\n{reason: "정지 기간 완료"}
+activate Controller
+
+Controller -> UserService: unsuspendUser(userId, adminId, reason)
+activate UserService
+
+== 정지 해제 권한 검증 ==
+UserService -> UserRepo: findById(userId)
+UserRepo -> DB: SELECT * FROM user WHERE id = ?
+DB --> UserRepo: user data
+UserRepo --> UserService: User
+
+alt 정지 상태가 아님
+    UserService --> Controller: NotSuspendedException
+    Controller --> Admin: 400 Bad Request\n{error: "user not suspended"}
+end
+
+== 사용자 상태 복구 ==
+UserService -> UserDomain: unsuspend()
+activate UserDomain
+UserDomain -> UserDomain: changeStatus(ACTIVE)
+UserDomain -> UserDomain: clearSuspensionDetails()
+deactivate UserDomain
+
+UserService -> UserRepo: save(unsuspendedUser)
+UserRepo -> DB: UPDATE user\nSET status = 'ACTIVE',\n    suspended_until = NULL,\n    suspended_reason = NULL,\n    unsuspended_at = NOW()\nWHERE id = ?
+
+== 활성 정지 제재 해제 ==
+UserService -> ModerationService: liftActiveSuspensions(userId, adminId, reason)
+activate ModerationService
+
+ModerationService -> SanctionRepo: findActiveSuspensionsByUserId(userId)
+SanctionRepo -> DB: SELECT * FROM sanction\nWHERE user_id = ? AND type = 'TEMPORARY_SUSPENSION'\nAND is_active = true
+DB --> SanctionRepo: active suspensions
+SanctionRepo --> ModerationService: List<Sanction>
+
+loop for each active suspension
+    ModerationService -> SanctionDomain: lift(adminId, reason)
+    activate SanctionDomain
+    SanctionDomain -> SanctionDomain: deactivate()
+    SanctionDomain -> SanctionDomain: setLiftedBy(adminId)
+    SanctionDomain -> SanctionDomain: setLiftedAt(now())
+    deactivate SanctionDomain
+
+    ModerationService -> SanctionRepo: save(liftedSanction)
+    SanctionRepo -> DB: UPDATE sanction SET is_active = false, lifted_at = NOW(), lifted_by = ?
+end
+
+ModerationService --> UserService: sanctions lifted
+deactivate ModerationService
+
+== 정지 해제 알림 발송 ==
+UserService -> NotifyService: sendUnsuspensionNotification(userId, reason)
+NotifyService -> NotifyService: createUnsuspensionNotification(userId, details)
+
+UserService -> AuditService: logUserUnsuspension(userId, adminId, reason)
+AuditService -> DB: INSERT INTO audit_log
+
+UserService --> Controller: unsuspension success
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{message: "계정 정지가 해제되었습니다."}
+deactivate Controller
+
+== 권한 부여/회수 ==
+Admin -> Controller: PUT /api/admin/users/{userId}/roles\n{\n  "roles": ["ADMIN"],\n  "action": "GRANT"\n}
+activate Controller
+
+Controller -> UserService: updateUserRoles(userId, adminId, roleUpdateRequest)
+activate UserService
+
+UserService -> UserService: validateRoleManagementPermission(adminId, targetRoles)
+note right: - 상위 권한자만 권한 부여 가능\n- 자신보다 높은 권한 부여 불가
+
+UserService -> UserRepo: findById(userId)
+UserRepo -> DB: SELECT * FROM user WHERE id = ?
+DB --> UserRepo: user data
+UserRepo --> UserService: User
+
+UserService -> UserDomain: updateRoles(newRoles)
+activate UserDomain
+UserDomain -> UserDomain: validateRoleTransition(currentRoles, newRoles)
+UserDomain -> UserDomain: setRoles(newRoles)
+deactivate UserDomain
+
+UserService -> UserRepo: save(userWithUpdatedRoles)
+UserRepo -> DB: UPDATE user SET roles = ? WHERE id = ?
+
+== 권한 변경에 따른 세션 갱신 ==
+UserService -> CacheService: updateUserRoleInActiveSessions(userId, newRoles)
+activate CacheService
+CacheService -> CacheService: updatePattern("user_session:" + userId + ":*", newRoleInfo)
+note right: 활성 세션의 역할 정보 업데이트
+deactivate CacheService
+
+UserService -> NotifyService: sendRoleChangeNotification(userId, newRoles, adminId)
+UserService -> AuditService: logRoleChange(userId, adminId, oldRoles, newRoles)
+
+UserService --> Controller: role update success
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{\n  "message": "사용자 권한이 업데이트되었습니다.",\n  "newRoles": ["ADMIN"]\n}
+deactivate Controller
+
+== 계정 삭제 (논리적 삭제) ==
+Admin -> Controller: DELETE /api/admin/users/{userId}\n{reason: "GDPR 요청"}
+activate Controller
+
+Controller -> UserService: deleteUser(userId, adminId, reason)
+activate UserService
+
+UserService -> UserService: validateUserDeletionPermission(adminId, userId)
+
+UserService -> UserDomain: markAsDeleted(reason)
+activate UserDomain
+UserDomain -> UserDomain: changeStatus(DELETED)
+UserDomain -> UserDomain: anonymizePersonalData()
+note right: 개인정보 익명화:\n- 이메일 → deleted_user_12345@deleted\n- 닉네임 → (삭제된 사용자)\n- 프로필 이미지 → null
+deactivate UserDomain
+
+UserService -> UserRepo: save(deletedUser)
+UserRepo -> DB: UPDATE user\nSET status = 'DELETED',\n    email = ?,\n    nickname = ?,\n    profile_image_url = NULL,\n    deleted_at = NOW()\nWHERE id = ?
+
+== 관련 데이터 정리 ==
+UserService -> UserService: cleanupUserRelatedData(userId)
+note right: - 활성 스터디에서 제거\n- 진행 중인 신청 취소\n- 알림/세션 정리\n- 개인정보 관련 데이터 익명화
+
+UserService -> AuditService: logUserDeletion(userId, adminId, reason)
+
+UserService --> Controller: deletion success
+deactivate UserService
+
+Controller --> Admin: 200 OK\n{message: "사용자 계정이 삭제되었습니다."}
+deactivate Controller
+
+== 예외 처리 ==
+alt 관리자 권한 없음
+    Controller --> Admin: 403 Forbidden\n{error: "admin permission required"}
+else 사용자 없음
+    UserService --> Controller: UserNotFoundException
+    Controller --> Admin: 404 Not Found\n{error: "user not found"}
+else 권한 부족 (상위 관리자 대상)
+    UserService --> Controller: InsufficientPermissionException
+    Controller --> Admin: 403 Forbidden\n{error: "insufficient permission"}
+else 이미 처리된 상태
+    UserService --> Controller: InvalidStateException
+    Controller --> Admin: 400 Bad Request\n{error: "user already in target state"}
+end
+
+@enduml

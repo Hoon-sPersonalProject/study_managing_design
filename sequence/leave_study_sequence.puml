@@ -1,0 +1,191 @@
+@startuml
+title 스터디 탈퇴 시퀀스 다이어그램
+
+actor "스터디 멤버" as Member
+participant "MemberController" as Controller
+participant "MembershipService" as MemberService
+participant "StudyMember" as MemberDomain
+participant "Study" as StudyDomain
+participant "StudyMemberRepository" as MemberRepo
+participant "StudyRepository" as StudyRepo
+participant "NotificationService" as NotifyService
+participant "CacheService" as CacheService
+participant "AuditService" as AuditService
+database "Database" as DB
+
+== 스터디 탈퇴 요청 ==
+Member -> Controller: DELETE /api/studies/{studyId}/members/me
+activate Controller
+
+Controller -> MemberService: leaveStudy(studyId, userId)
+activate MemberService
+
+== 탈퇴 자격 검증 ==
+MemberService -> MemberRepo: findByStudyIdAndUserId(studyId, userId)
+activate MemberRepo
+MemberRepo -> DB: SELECT * FROM study_member\nWHERE study_id = ? AND user_id = ?
+alt 멤버십 존재
+    DB --> MemberRepo: member data
+    MemberRepo --> MemberService: StudyMember
+else 멤버가 아님
+    DB --> MemberRepo: empty
+    MemberRepo --> MemberService: null
+    MemberService --> Controller: NotMemberException
+    Controller --> Member: 400 Bad Request\n{error: "not a member of this study"}
+end
+deactivate MemberRepo
+
+MemberService -> StudyRepo: findById(studyId)
+activate StudyRepo
+StudyRepo -> DB: SELECT * FROM study WHERE id = ?
+DB --> StudyRepo: study data
+StudyRepo --> MemberService: Study
+deactivate StudyRepo
+
+== 리더 탈퇴 특별 처리 ==
+alt 탈퇴하려는 사용자가 리더인 경우
+    MemberService -> MemberService: validateLeaderLeaving(study, member)
+
+    MemberService -> MemberRepo: countOtherMembers(studyId, userId)
+    activate MemberRepo
+    MemberRepo -> DB: SELECT COUNT(*) FROM study_member\nWHERE study_id = ? AND user_id != ?
+    DB --> MemberRepo: other_member_count
+    MemberRepo --> MemberService: otherMemberCount
+    deactivate MemberRepo
+
+    alt 다른 멤버가 있는 경우
+        MemberService --> Controller: LeaderDelegationRequiredException
+        Controller --> Member: 400 Bad Request\n{\n  "error": "leader must delegate before leaving",\n  "availableMembers": [...]\n}
+    else 마지막 멤버인 경우
+        note over MemberService: 스터디 자동 마감 처리로 진행
+    end
+end
+
+== 탈퇴 가능 상태 검증 ==
+MemberService -> MemberService: validateLeavingConditions(study, member)
+note right: - 진행중인 정산이 없는지\n- 제재 상태가 아닌지\n- 정책상 탈퇴 제한이 없는지
+
+== 역할/리소스 정리 ==
+MemberService -> MemberService: cleanupMemberResources(studyId, userId)
+note right: - 멤버 권한 회수\n- 작성한 일정/게시물 권한 정리\n- 개인 데이터 정책에 따른 처리
+
+== 탈퇴 처리 ==
+MemberService -> MemberDomain: leave()
+activate MemberDomain
+MemberDomain -> MemberDomain: markAsLeft()
+note right: status를 LEFT로 변경하거나\n논리적 삭제 처리
+deactivate MemberDomain
+
+MemberService -> MemberRepo: delete(member)
+activate MemberRepo
+alt 물리적 삭제
+    MemberRepo -> DB: DELETE FROM study_member\nWHERE study_id = ? AND user_id = ?
+else 논리적 삭제 (감사 목적)
+    MemberRepo -> DB: UPDATE study_member\nSET status = 'LEFT', left_at = NOW()\nWHERE study_id = ? AND user_id = ?
+end
+DB --> MemberRepo: success
+MemberRepo --> MemberService: success
+deactivate MemberRepo
+
+== 스터디 참가자 수 감소 ==
+MemberService -> StudyDomain: decreaseParticipants()
+activate StudyDomain
+StudyDomain -> StudyDomain: currentParticipants--
+deactivate StudyDomain
+
+MemberService -> StudyRepo: save(study)
+activate StudyRepo
+StudyRepo -> DB: UPDATE study\nSET current_participants = current_participants - 1\nWHERE id = ?
+DB --> StudyRepo: success
+StudyRepo --> MemberService: updatedStudy
+deactivate StudyRepo
+
+== 대기자 자동 승격 ==
+alt 대기자가 있고 정원에 여유가 있는 경우
+    MemberService -> MemberService: processWaitingList(studyId)
+
+    MemberService -> MemberRepo: findOldestWaitingApplicant(studyId)
+    MemberRepo -> DB: SELECT * FROM application\nWHERE study_id = ? AND status = 'WAITLISTED'\nORDER BY applied_at LIMIT 1
+    DB --> MemberRepo: waiting application
+
+    alt 대기자 존재
+        MemberService -> MemberService: autoApproveWaitingApplicant(waitingApplication)
+        note right: 대기자를 자동 승인하여 멤버로 추가
+
+        MemberService -> NotifyService: sendAutoPromotionNotification(waitingApplicant, study)
+    end
+end
+
+== 마지막 멤버 탈퇴 시 스터디 자동 마감 ==
+alt 탈퇴 후 멤버가 0명인 경우
+    MemberService -> StudyDomain: autoClose()
+    activate StudyDomain
+    StudyDomain -> StudyDomain: changeStatus(CANCELLED)
+    note right: 빈 스터디는 자동 취소 상태로 변경
+    deactivate StudyDomain
+
+    MemberService -> StudyRepo: save(closedStudy)
+    StudyRepo -> DB: UPDATE study SET status = 'CANCELLED'
+end
+
+== 후처리 작업 ==
+par 병렬 처리
+    == 알림 발송 ==
+    MemberService -> NotifyService: sendMemberLeftNotification(leaderId, leftMember, study)
+    activate NotifyService
+    NotifyService -> NotifyService: createNotification(leaderId, MEMBER_LEFT, memberInfo)
+    deactivate NotifyService
+'and
+    == 캐시 무효화 ==
+    MemberService -> CacheService: evictStudyMemberCache(studyId)
+    activate CacheService
+    CacheService -> CacheService: invalidate("study_members:" + studyId)
+    CacheService -> CacheService: invalidate("participation_status:" + userId)
+    deactivate CacheService
+'and
+    == 감사 로그 기록 ==
+    MemberService -> AuditService: logMemberLeaving(userId, studyId, reason)
+    activate AuditService
+    AuditService -> DB: INSERT INTO audit_log\n(user_id, action, entity_type, entity_id, details)
+    deactivate AuditService
+end
+
+== 재참가 쿨다운 설정 ==
+alt 정책상 재참가 제한이 있는 경우
+    MemberService -> MemberService: applyRejoinCooldown(userId, studyId)
+    note right: 일정 기간 동안 재참가 불가 설정
+
+    MemberService -> DB: INSERT INTO rejoin_restriction\n(user_id, study_id, restricted_until)
+end
+
+MemberService --> Controller: success
+deactivate MemberService
+
+Controller --> Member: 200 OK\n{\n  "message": "successfully left the study",\n  "rejoinAvailableAt": "2024-09-01T00:00:00Z"\n}
+deactivate Controller
+
+== 탈퇴 사유 수집 (선택적) ==
+alt 탈퇴 사유 입력 요청
+    Member -> Controller: POST /api/studies/{studyId}/feedback\n{\n  "reason": "time_conflict",\n  "comment": "업무가 너무 바빠서..."\n}
+
+    Controller -> MemberService: collectLeavingFeedback(studyId, userId, feedback)
+    MemberService -> DB: INSERT INTO leaving_feedback
+    Controller --> Member: 200 OK
+end
+
+== 예외 처리 ==
+alt 멤버가 아님
+    MemberService --> Controller: NotMemberException
+    Controller --> Member: 400 Bad Request\n{error: "not a member"}
+else 리더 위임 필요
+    MemberService --> Controller: LeaderDelegationRequiredException
+    Controller --> Member: 400 Bad Request\n{error: "must delegate leadership first"}
+else 탈퇴 제한 상태
+    MemberService --> Controller: LeavingRestrictedException
+    Controller --> Member: 400 Bad Request\n{error: "leaving restricted due to ongoing process"}
+else 시스템 오류
+    MemberService --> Controller: InternalServerException
+    Controller --> Member: 500 Internal Server Error\n{error: "system error occurred"}
+end
+
+@enduml

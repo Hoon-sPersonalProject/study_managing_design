@@ -1,0 +1,153 @@
+@startuml
+title 스터디 참가 신청 및 승인 시퀀스 다이어그램
+
+actor "신청자" as Applicant
+actor "스터디 리더" as Leader
+participant "ApplicationController" as AppController
+participant "ApplicationService" as AppService
+participant "StudyService" as StudyService
+participant "Application" as AppDomain
+participant "Study" as StudyDomain
+participant "ApplicationRepository" as AppRepository
+participant "StudyRepository" as StudyRepo
+participant "NotificationService" as NotifyService
+database "Database" as DB
+
+== 스터디 참가 신청 ==
+Applicant -> AppController: POST /api/studies/{studyId}/applications\n(ApplicationRequest)
+activate AppController
+
+AppController -> AppService: applyToStudy(studyId, applicantId, message)
+activate AppService
+
+== 신청 자격 검증 ==
+AppService -> StudyService: getStudy(studyId)
+activate StudyService
+StudyService -> StudyRepo: findById(studyId)
+StudyRepo -> DB: SELECT * FROM study WHERE id = ?
+DB --> StudyRepo: study data
+StudyRepo --> StudyService: Study
+StudyService --> AppService: Study
+deactivate StudyService
+
+AppService -> AppService: validateApplicationEligibility(study, applicantId)
+note right: 모집중 상태, 정원, 중복신청,\n차단여부, 재참가 제한 검증
+
+== 신청서 생성 및 저장 ==
+AppService -> AppDomain: apply(studyId, applicantId, message)
+activate AppDomain
+AppDomain -> AppDomain: validateApplicationData()
+deactivate AppDomain
+
+AppService -> AppRepository: save(application)
+activate AppRepository
+AppRepository -> DB: INSERT INTO application
+DB --> AppRepository: application_id
+AppRepository --> AppService: savedApplication
+deactivate AppRepository
+
+== 자동 승인 정책 확인 ==
+alt 자동 승인 정책
+    AppService -> AppService: checkAutoApprovalPolicy(study, applicant)
+
+    AppService -> AppDomain: approve()
+    activate AppDomain
+    AppDomain -> AppDomain: changeStatus(APPROVED)
+    deactivate AppDomain
+
+    AppService -> AppRepository: save(approvedApplication)
+    AppRepository -> DB: UPDATE application SET status = 'APPROVED'
+
+    == 멤버십 생성 ==
+    AppService -> StudyService: addMember(studyId, applicantId)
+    activate StudyService
+    StudyService -> StudyRepo: saveStudyMember(member)
+    StudyRepo -> DB: INSERT INTO study_member
+    StudyService -> StudyDomain: increaseParticipants()
+    StudyService -> StudyRepo: save(study)
+    StudyRepo -> DB: UPDATE study SET current_participants = ?
+    deactivate StudyService
+
+    == 자동 승인 알림 ==
+    par
+        AppService -> NotifyService: sendApplicationApprovedNotification(applicantId, study)
+'    and
+        AppService -> NotifyService: sendNewMemberJoinedNotification(leaderId, applicant, study)
+    end
+
+else 수동 승인 (대기 상태)
+    note over AppService: 신청서는 PENDING 상태로 유지
+
+    == 리더에게 신청 알림 ==
+    AppService -> NotifyService: sendApplicationReceivedNotification(leaderId, applicant, study)
+end
+
+AppService --> AppController: ApplicationResponse
+deactivate AppService
+
+AppController --> Applicant: 201 Created\n{application: ApplicationResponse}
+deactivate AppController
+
+== 리더의 수동 승인 처리 ==
+Leader -> AppController: PUT /api/applications/{applicationId}/approve
+activate AppController
+
+AppController -> AppService: approveApplication(applicationId, leaderId)
+activate AppService
+
+== 승인 권한 검증 ==
+AppService -> AppService: validateApprovalPermission(applicationId, leaderId)
+
+AppService -> AppRepository: findById(applicationId)
+AppRepository -> DB: SELECT * FROM application WHERE id = ?
+DB --> AppRepository: application data
+AppRepository --> AppService: Application
+
+== 승인 처리 ==
+AppService -> AppDomain: approve()
+activate AppDomain
+AppDomain -> AppDomain: changeStatus(APPROVED)
+AppDomain -> AppDomain: setProcessedAt(now())
+deactivate AppDomain
+
+AppService -> AppRepository: save(approvedApplication)
+AppRepository -> DB: UPDATE application
+
+== 멤버십 생성 ==
+AppService -> StudyService: addMember(studyId, applicantId)
+activate StudyService
+StudyService -> StudyRepo: saveStudyMember(member)
+StudyRepo -> DB: INSERT INTO study_member
+StudyService -> StudyDomain: increaseParticipants()
+StudyService -> StudyRepo: save(study)
+deactivate StudyService
+
+== 승인 알림 발송 ==
+par
+    AppService -> NotifyService: sendApplicationApprovedNotification(applicantId, study)
+'and
+    AppService -> NotifyService: sendNewMemberJoinedNotification(leaderId, applicant, study)
+end
+
+AppService --> AppController: success
+deactivate AppService
+
+AppController --> Leader: 200 OK
+deactivate AppController
+
+== 예외 처리 ==
+alt 중복 신청
+    AppService --> AppController: DuplicateApplicationException
+    AppController --> Applicant: 409 Conflict\n{error: "already applied"}
+else 모집 마감
+    AppService --> AppController: RecruitmentClosedException
+    AppController --> Applicant: 400 Bad Request\n{error: "recruitment closed"}
+else 정원 초과
+    AppService --> AppController: StudyFullException
+    AppController --> Applicant: 400 Bad Request\n{error: "study is full"}
+else 권한 없음 (승인 시)
+    AppService --> AppController: AccessDeniedException
+    AppController --> Leader: 403 Forbidden\n{error: "not authorized"}
+end
+
+@enduml

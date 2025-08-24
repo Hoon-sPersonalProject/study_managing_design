@@ -1,0 +1,220 @@
+@startuml
+title 알림 발송 시퀀스 다이어그램
+
+participant "EventBus" as EventBus
+participant "NotificationService" as NotifyService
+participant "NotificationRepository" as NotifyRepo
+participant "EmailService" as EmailService
+participant "PushNotificationService" as PushService
+participant "SMSService" as SMSService
+participant "TemplateEngine" as Template
+participant "UserRepository" as UserRepo
+participant "AuditService" as AuditService
+queue "NotificationQueue" as Queue
+database "Database" as DB
+'external "EmailGateway" as EmailGW
+'external "PushGateway" as PushGW
+'external "SMSGateway" as SMSGW
+
+== 이벤트 기반 알림 트리거 ==
+EventBus -> NotifyService: StudyApplicationReceived\n{studyId, applicantId, leaderId}
+activate NotifyService
+
+== 알림 대상자 및 설정 조회 ==
+NotifyService -> UserRepo: findById(leaderId)
+activate UserRepo
+UserRepo -> DB: SELECT u.*, up.* FROM user u\nLEFT JOIN user_preferences up ON u.id = up.user_id\nWHERE u.id = ?
+DB --> UserRepo: user with notification preferences
+UserRepo --> NotifyService: User + NotificationPreferences
+deactivate UserRepo
+
+NotifyService -> NotifyService: checkOptOutStatus(user, STUDY_APPLICATION_RECEIVED)
+note right: 사용자의 알림 수신 설정 확인\n- 전체 알림 차단\n- 카테고리별 차단\n- 조용한 시간 설정
+
+alt 알림 수신 거부 상태
+    NotifyService -> AuditService: logSkippedNotification(userId, reason)
+    NotifyService --> EventBus: notification skipped
+else 알림 수신 허용
+
+    == 알림 내용 생성 ==
+    NotifyService -> UserRepo: findById(applicantId)
+    UserRepo -> DB: SELECT nickname, profile_image_url FROM user WHERE id = ?
+    DB --> UserRepo: applicant info
+    UserRepo --> NotifyService: applicant data
+
+    NotifyService -> NotifyService: buildNotificationContent(STUDY_APPLICATION_RECEIVED, applicant, study)
+
+    == 알림 템플릿 렌더링 ==
+    NotifyService -> Template: renderNotification(templateName, variables)
+    activate Template
+    Template -> Template: loadTemplate("study_application_received")
+    Template -> Template: mergeVariables(applicantName, studyTitle, ...)
+    Template --> NotifyService: RenderedNotification {title, content, actionUrl}
+    deactivate Template
+
+    == 알림 레코드 생성 및 저장 ==
+    NotifyService -> NotifyService: createNotification(recipientId, type, content)
+
+    NotifyService -> NotifyRepo: save(notification)
+    activate NotifyRepo
+    NotifyRepo -> DB: INSERT INTO notification\n(recipient_id, type, title, content, related_entity_id, ...)
+    DB --> NotifyRepo: notification_id
+    NotifyRepo --> NotifyService: savedNotification
+    deactivate NotifyRepo
+
+    == 다채널 알림 발송 ==
+    par 이메일 알림
+        alt 이메일 수신 허용
+            NotifyService -> Queue: enqueue(EmailNotificationTask)
+
+            Queue -> EmailService: sendNotificationEmail(user, notification)
+            activate EmailService
+
+            EmailService -> Template: renderEmailTemplate(notification)
+            Template --> EmailService: html email content
+
+            EmailService -> EmailGW: sendEmail(to, subject, htmlContent)
+            activate EmailGW
+            EmailGW --> EmailService: delivery status
+            deactivate EmailGW
+
+            EmailService -> NotifyService: updateDeliveryStatus(notificationId, EMAIL, status)
+            deactivate EmailService
+        end
+'    and 푸시 알림
+        alt 푸시 수신 허용 && 모바일 토큰 존재
+            NotifyService -> Queue: enqueue(PushNotificationTask)
+
+            Queue -> PushService: sendPushNotification(deviceToken, notification)
+            activate PushService
+
+            PushService -> PushService: buildPushPayload(notification)
+            note right: 제목, 내용, 액션, 뱃지 수 구성
+
+            PushService -> PushGW: push(deviceToken, payload)
+            activate PushGW
+            PushGW --> PushService: delivery result
+            deactivate PushGW
+
+            PushService -> NotifyService: updateDeliveryStatus(notificationId, PUSH, result)
+            deactivate PushService
+        end
+'    and SMS 알림 (중요 알림만)
+        alt SMS 수신 허용 && 중요 알림
+            NotifyService -> Queue: enqueue(SMSNotificationTask)
+
+            Queue -> SMSService: sendSMS(phoneNumber, shortMessage)
+            activate SMSService
+
+            SMSService -> SMSService: buildSMSContent(notification, 80chars)
+            note right: SMS 길이 제한에 맞춰 요약
+
+            SMSService -> SMSGW: sendSMS(phoneNumber, message)
+            activate SMSGW
+            SMSGW --> SMSService: delivery status
+            deactivate SMSGW
+
+            SMSService -> NotifyService: updateDeliveryStatus(notificationId, SMS, status)
+            deactivate SMSService
+        end
+    end
+
+    == 알림 상태 업데이트 ==
+    NotifyService -> NotifyRepo: updateDeliveryStatus(notificationId, channels, statuses)
+    NotifyRepo -> DB: UPDATE notification SET\nemail_status = ?, push_status = ?, sms_status = ?\nWHERE id = ?
+
+    == 감사 로그 기록 ==
+    NotifyService -> AuditService: logNotificationSent(notificationId, channels, results)
+    AuditService -> DB: INSERT INTO notification_audit_log
+end
+
+NotifyService --> EventBus: notification processing completed
+deactivate NotifyService
+
+== 대량 알림 발송 (공지/방송) ==
+participant "AdminController" as AdminController
+actor "관리자" as Admin
+
+Admin -> AdminController: POST /api/admin/notifications/broadcast\n{\n  "recipients": "all_users",\n  "title": "시스템 점검 안내",\n  "content": "...",\n  "channels": ["email", "push"]\n}
+activate AdminController
+
+AdminController -> NotifyService: sendBroadcastNotification(broadcastRequest)
+activate NotifyService
+
+== 대상자 세그멘테이션 ==
+NotifyService -> NotifyService: resolveBroadcastRecipients(broadcastRequest)
+note right: "all_users", "study_leaders", "active_members" 등을\n실제 사용자 ID 목록으로 변환
+
+NotifyService -> UserRepo: findUsersBySegment(segment)
+activate UserRepo
+UserRepo -> DB: SELECT id, email, notification_preferences\nFROM user WHERE status = 'ACTIVE'\nAND segment_condition = ?
+DB --> UserRepo: recipient list
+UserRepo --> NotifyService: List<User>
+deactivate UserRepo
+
+== 배치 알림 처리 ==
+NotifyService -> NotifyService: createBatchNotifications(recipients, broadcastContent)
+
+loop for each batch (100 users per batch)
+    NotifyService -> NotifyRepo: saveBatch(notifications)
+    NotifyRepo -> DB: INSERT INTO notification (batch)
+
+    NotifyService -> Queue: enqueueBatch(NotificationTasks)
+
+    note over Queue: 비동기 배치 처리로\n시스템 부하 분산
+end
+
+NotifyService -> NotifyService: createBroadcastRecord(broadcastId, totalRecipients, status)
+NotifyService -> DB: INSERT INTO broadcast_log
+
+NotifyService --> AdminController: BroadcastResult {broadcastId, estimatedDelivery, recipientCount}
+deactivate NotifyService
+
+AdminController --> Admin: 202 Accepted\n{message: "broadcast queued", broadcastId: "..."}
+deactivate AdminController
+
+== 알림 읽음 처리 ==
+participant "NotificationController" as NotifyController
+actor "사용자" as User
+
+User -> NotifyController: PUT /api/notifications/{notificationId}/read
+activate NotifyController
+
+NotifyController -> NotifyService: markAsRead(notificationId, userId)
+activate NotifyService
+
+NotifyService -> NotifyRepo: findByIdAndRecipientId(notificationId, userId)
+NotifyRepo -> DB: SELECT * FROM notification WHERE id = ? AND recipient_id = ?
+DB --> NotifyRepo: notification
+NotifyRepo --> NotifyService: Notification
+
+alt 알림이 존재하고 본인 소유
+    NotifyService -> NotifyService: markAsRead(notification)
+    NotifyService -> NotifyRepo: save(readNotification)
+    NotifyRepo -> DB: UPDATE notification SET is_read = true, read_at = NOW() WHERE id = ?
+
+    NotifyService --> NotifyController: success
+else 알림 없음 또는 권한 없음
+    NotifyService --> NotifyController: NotificationNotFoundException
+end
+
+deactivate NotifyService
+NotifyController --> User: 200 OK
+deactivate NotifyController
+
+== 예외 처리 ==
+alt 이메일 발송 실패
+    EmailGW --> EmailService: delivery failed
+    EmailService -> NotifyService: updateDeliveryStatus(EMAIL, FAILED)
+    NotifyService -> Queue: enqueue(RetryEmailTask, delay=5min)
+    note right: 최대 3회 재시도
+else 푸시 토큰 만료
+    PushGW --> PushService: invalid token
+    PushService -> NotifyService: invalidateDeviceToken(userId, token)
+    NotifyService -> UserRepo: removeDeviceToken(userId, token)
+else 사용자 차단/탈퇴
+    NotifyService -> NotifyService: skipNotification(reason="user_blocked")
+    NotifyService -> AuditService: logSkippedNotification(userId, reason)
+end
+
+@enduml

@@ -1,0 +1,256 @@
+@startuml
+title 신고 및 제재 처리 시퀀스 다이어그램
+
+actor "신고자" as Reporter
+actor "관리자" as Admin
+participant "ReportController" as ReportController
+participant "ModerationService" as ModerationService
+participant "Report" as ReportDomain
+participant "Sanction" as SanctionDomain
+participant "ReportRepository" as ReportRepo
+participant "SanctionRepository" as SanctionRepo
+participant "UserRepository" as UserRepo
+participant "NotificationService" as NotifyService
+participant "AuditService" as AuditService
+participant "PolicyEngine" as PolicyEngine
+database "Database" as DB
+
+== 신고 접수 ==
+Reporter -> ReportController: POST /api/reports\n{\n  "reportedUserId": 123,\n  "reportType": "INAPPROPRIATE_CONTENT",\n  "reason": "욕설 및 비방",\n  "evidence": "스크린샷 URL"\n}
+activate ReportController
+
+ReportController -> ModerationService: fileReport(reporterId, reportedId, reportType, reason, evidence)
+activate ModerationService
+
+== 신고 자격 검증 ==
+ModerationService -> ModerationService: validateReportEligibility(reporterId, reportedId)
+note right: - 본인 신고 방지\n- 중복 신고 방지 (24시간 내)\n- 신고자 차단 상태 확인
+
+ModerationService -> UserRepo: findById(reportedId)
+activate UserRepo
+UserRepo -> DB: SELECT * FROM user WHERE id = ?
+DB --> UserRepo: reported user data
+UserRepo --> ModerationService: reportedUser
+deactivate UserRepo
+
+alt 신고 대상이 존재하지 않음
+    ModerationService --> ReportController: UserNotFoundException
+    ReportController --> Reporter: 404 Not Found\n{error: "user not found"}
+else 중복 신고 (최근 24시간)
+    ModerationService --> ReportController: DuplicateReportException
+    ReportController --> Reporter: 409 Conflict\n{error: "already reported recently"}
+end
+
+== 신고서 생성 및 저장 ==
+ModerationService -> ReportDomain: file(reporterId, reportedId, type, reason, evidence)
+activate ReportDomain
+ReportDomain -> ReportDomain: validateReportData()
+ReportDomain -> ReportDomain: assignReportId()
+ReportDomain -> ReportDomain: setStatus(PENDING)
+deactivate ReportDomain
+
+ModerationService -> ReportRepo: save(report)
+activate ReportRepo
+ReportRepo -> DB: INSERT INTO report\n(reporter_id, reported_id, type, reason, evidence, status, created_at)
+DB --> ReportRepo: report_id
+ReportRepo --> ModerationService: savedReport
+deactivate ReportRepo
+
+== 자동 탐지 및 임시 조치 ==
+ModerationService -> PolicyEngine: evaluateReport(report)
+activate PolicyEngine
+PolicyEngine -> PolicyEngine: calculateSeverityScore(reportType, evidence, reportedUserHistory)
+note right: - 신고 유형별 가중치\n- 피신고자 이전 위반 이력\n- 증거 신뢰도 점수
+
+alt 심각도 점수가 임계값 초과 (즉시 조치 필요)
+    PolicyEngine --> ModerationService: ImmediateActionRequired {score: 95, suggestedAction: TEMPORARY_SUSPENSION}
+
+    ModerationService -> ModerationService: applyTemporaryMeasure(reportedId, TEMPORARY_SUSPENSION, "24시간")
+
+    ModerationService -> SanctionDomain: impose(reportedId, TEMPORARY_SUSPENSION, "auto-detected severe violation")
+    activate SanctionDomain
+    SanctionDomain -> SanctionDomain: calculateDuration(userHistory, violationType)
+    SanctionDomain -> SanctionDomain: setEndTime(now + 24hours)
+    deactivate SanctionDomain
+
+    ModerationService -> SanctionRepo: save(tempSanction)
+    SanctionRepo -> DB: INSERT INTO sanction
+
+    == 임시 조치 알림 ==
+    ModerationService -> NotifyService: sendTemporarySuspensionNotification(reportedId, reason, duration)
+
+else 일반적인 신고 (수동 심사 대기)
+    PolicyEngine --> ModerationService: ManualReviewRequired {score: 65, priority: MEDIUM}
+
+    note over ModerationService: 관리자 심사 대기열에 추가
+end
+deactivate PolicyEngine
+
+== 신고 완료 알림 ==
+ModerationService -> NotifyService: sendReportReceivedNotification(reporterId, reportId)
+activate NotifyService
+NotifyService -> NotifyService: createNotification(reporterId, REPORT_RECEIVED, reportDetails)
+deactivate NotifyService
+
+== 감사 로그 기록 ==
+ModerationService -> AuditService: logReportFiled(reporterId, reportedId, reportType, reportId)
+AuditService -> DB: INSERT INTO audit_log
+
+ModerationService --> ReportController: ReportResponse {reportId, status, estimatedReviewTime}
+deactivate ModerationService
+
+ReportController --> Reporter: 201 Created\n{\n  "reportId": "RPT-2024-001234",\n  "status": "PENDING",\n  "message": "신고가 접수되었습니다. 검토까지 1-3일 소요됩니다."\n}
+deactivate ReportController
+
+== 관리자 신고 심사 ==
+Admin -> ReportController: GET /api/admin/reports?status=pending&priority=high
+activate ReportController
+
+ReportController -> ModerationService: getPendingReports(criteria)
+activate ModerationService
+
+ModerationService -> ReportRepo: findPendingReports(priority, pageable)
+activate ReportRepo
+ReportRepo -> DB: SELECT r.*, u1.nickname as reporter_name, u2.nickname as reported_name\nFROM report r\nJOIN user u1 ON r.reporter_id = u1.id\nJOIN user u2 ON r.reported_id = u2.id\nWHERE r.status = 'PENDING'\nORDER BY r.priority DESC, r.created_at ASC
+DB --> ReportRepo: pending reports with user info
+ReportRepo --> ModerationService: List<ReportWithUserInfo>
+deactivate ReportRepo
+
+ModerationService --> ReportController: PageResponse<ReportResponse>
+deactivate ModerationService
+
+ReportController --> Admin: 200 OK\n{pending reports list}
+deactivate ReportController
+
+== 신고 처리 (제재 부과) ==
+Admin -> ReportController: PUT /api/admin/reports/{reportId}/resolve\n{\n  "decision": "GUILTY",\n  "sanctionType": "TEMPORARY_SUSPENSION",\n  "duration": "P7D",\n  "reason": "커뮤니티 가이드라인 위반"\n}
+activate ReportController
+
+ReportController -> ModerationService: processReport(reportId, adminId, decision, sanctionDetails)
+activate ModerationService
+
+== 관리자 권한 검증 ==
+ModerationService -> ModerationService: validateAdminPermission(adminId, MODERATE_REPORTS)
+
+ModerationService -> ReportRepo: findById(reportId)
+activate ReportRepo
+ReportRepo -> DB: SELECT * FROM report WHERE id = ?
+DB --> ReportRepo: report data
+ReportRepo --> ModerationService: Report
+deactivate ReportRepo
+
+== 신고 상태 업데이트 ==
+ModerationService -> ReportDomain: resolve(decision, adminId, reason)
+activate ReportDomain
+ReportDomain -> ReportDomain: changeStatus(RESOLVED)
+ReportDomain -> ReportDomain: setProcessedAt(now())
+ReportDomain -> ReportDomain: setProcessedBy(adminId)
+deactivate ReportDomain
+
+ModerationService -> ReportRepo: save(resolvedReport)
+ReportRepo -> DB: UPDATE report SET status = 'RESOLVED', processed_at = NOW(), processed_by = ?
+
+== 제재 부과 ==
+alt 유죄 판정 (제재 부과)
+    ModerationService -> SanctionDomain: impose(reportedId, sanctionType, reason, duration)
+    activate SanctionDomain
+
+    SanctionDomain -> SanctionDomain: calculateEffectivePeriod(sanctionType, duration, userHistory)
+    note right: 누적 위반 시 가중 처벌
+
+    SanctionDomain -> SanctionDomain: determineSanctionScope(sanctionType)
+    note right: 전체 플랫폼 vs 특정 스터디만
+
+    deactivate SanctionDomain
+
+    ModerationService -> SanctionRepo: save(sanction)
+    activate SanctionRepo
+    SanctionRepo -> DB: INSERT INTO sanction\n(user_id, type, reason, start_time, end_time, imposed_by)
+    DB --> SanctionRepo: sanction_id
+    SanctionRepo --> ModerationService: savedSanction
+    deactivate SanctionRepo
+
+    == 제재 연계 처리 ==
+    alt 계정 정지 제재
+        ModerationService -> UserRepo: suspendUser(reportedId, endTime)
+        UserRepo -> DB: UPDATE user SET status = 'SUSPENDED', suspended_until = ?
+    else 스터디 활동 제한
+        ModerationService -> ModerationService: restrictStudyActivities(reportedId, sanctionScope)
+        note right: 스터디 생성, 참가 신청 등 제한
+    end
+
+    == 제재 통지 ==
+    par
+        ModerationService -> NotifyService: sendSanctionNotification(reportedId, sanction)
+        activate NotifyService
+        NotifyService -> NotifyService: createNotification(reportedId, SANCTION_IMPOSED, sanctionDetails)
+        deactivate NotifyService
+'    and
+        ModerationService -> NotifyService: sendReportResolutionNotification(reporterId, decision, action)
+        NotifyService -> NotifyService: createNotification(reporterId, REPORT_RESOLVED, resolution)
+    end
+
+else 무죄 판정 (신고 기각)
+    ModerationService -> NotifyService: sendReportRejectedNotification(reporterId, rejectionReason)
+end
+
+== 감사 로그 기록 ==
+ModerationService -> AuditService: logReportProcessed(reportId, adminId, decision, action)
+AuditService -> DB: INSERT INTO moderation_audit_log
+
+ModerationService --> ReportController: ProcessingResult {action: "sanction_imposed", sanctionId: "..."}
+deactivate ModerationService
+
+ReportController --> Admin: 200 OK\n{\n  "message": "신고가 처리되었습니다.",\n  "action": "sanction_imposed",\n  "sanctionDetails": {...}\n}
+deactivate ReportController
+
+== 제재 해제 처리 ==
+Admin -> ReportController: PUT /api/admin/sanctions/{sanctionId}/lift\n{reason: "이의제기 승인"}
+activate ReportController
+
+ReportController -> ModerationService: liftSanction(sanctionId, adminId, reason)
+activate ModerationService
+
+ModerationService -> SanctionRepo: findById(sanctionId)
+SanctionRepo -> DB: SELECT * FROM sanction WHERE id = ?
+DB --> SanctionRepo: sanction data
+SanctionRepo --> ModerationService: Sanction
+
+ModerationService -> SanctionDomain: lift(adminId, reason)
+activate SanctionDomain
+SanctionDomain -> SanctionDomain: deactivate()
+SanctionDomain -> SanctionDomain: setLiftedAt(now())
+deactivate SanctionDomain
+
+ModerationService -> SanctionRepo: save(liftedSanction)
+SanctionRepo -> DB: UPDATE sanction SET is_active = false, lifted_at = NOW(), lifted_by = ?
+
+== 사용자 상태 복구 ==
+ModerationService -> UserRepo: restoreUserStatus(userId)
+UserRepo -> DB: UPDATE user SET status = 'ACTIVE', suspended_until = NULL WHERE id = ?
+
+== 해제 통지 ==
+ModerationService -> NotifyService: sendSanctionLiftedNotification(userId, liftReason)
+
+ModerationService --> ReportController: success
+deactivate ModerationService
+
+ReportController --> Admin: 200 OK
+deactivate ReportController
+
+== 예외 처리 ==
+alt 신고 대상 없음
+    ModerationService --> ReportController: UserNotFoundException
+    ReportController --> Reporter: 404 Not Found\n{error: "user not found"}
+else 권한 없음 (일반 사용자가 관리 기능 접근)
+    ReportController --> Admin: 403 Forbidden\n{error: "admin permission required"}
+else 이미 처리된 신고
+    ModerationService --> ReportController: AlreadyProcessedException
+    ReportController --> Admin: 400 Bad Request\n{error: "report already processed"}
+else 제재 부과 실패
+    SanctionRepo --> ModerationService: DatabaseException
+    ModerationService --> ReportController: SanctionException
+    ReportController --> Admin: 500 Internal Server Error\n{error: "failed to impose sanction"}
+end
+
+@enduml
