@@ -10,7 +10,7 @@ participant "CacheService" as CacheService
 participant "AuditService" as AuditService
 database "Database" as DB
 database "Cache" as Cache
-'external "OAuthProvider" as OAuthProvider
+actor "OAuthProvider" as OAuthProvider
 
 == 일반 로그인 ==
 Guest -> Controller: POST /api/auth/login\n{\n  "email": "user@example.com",\n  "password": "password123"\n}

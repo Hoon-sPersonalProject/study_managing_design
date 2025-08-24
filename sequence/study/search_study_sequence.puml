@@ -117,14 +117,14 @@ else 캐시 미스
         Service -> Repository: getStudyLeader(study.leaderId)
         Repository -> DB: SELECT * FROM user WHERE id = ?
         DB --> Repository: leader info
-'    and
+    else
         Service -> Repository: getStudyMemberCount(studyId)
         Repository -> DB: SELECT COUNT(*) FROM study_member WHERE study_id = ?
         DB --> Repository: member count
-'    and
+    else
         Service -> Service: checkUserApplicationStatus(studyId, userId)
         note right: 사용자의 신청/참여 상태 확인
-'    and
+    else
         Service -> Service: determineAvailableActions(study, userId)
         note right: 신청/탈퇴/관리 버튼 상태 계산
     end

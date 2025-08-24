@@ -12,9 +12,9 @@ participant "UserRepository" as UserRepo
 participant "AuditService" as AuditService
 queue "NotificationQueue" as Queue
 database "Database" as DB
-'external "EmailGateway" as EmailGW
-'external "PushGateway" as PushGW
-'external "SMSGateway" as SMSGW
+actor "EmailGateway" as EmailGW
+actor "PushGateway" as PushGW
+actor "SMSGateway" as SMSGW
 
 == 이벤트 기반 알림 트리거 ==
 EventBus -> NotifyService: StudyApplicationReceived\n{studyId, applicantId, leaderId}
@@ -81,7 +81,7 @@ else 알림 수신 허용
             EmailService -> NotifyService: updateDeliveryStatus(notificationId, EMAIL, status)
             deactivate EmailService
         end
-'    and 푸시 알림
+    else 푸시 알림
         alt 푸시 수신 허용 && 모바일 토큰 존재
             NotifyService -> Queue: enqueue(PushNotificationTask)
 
@@ -99,7 +99,7 @@ else 알림 수신 허용
             PushService -> NotifyService: updateDeliveryStatus(notificationId, PUSH, result)
             deactivate PushService
         end
-'    and SMS 알림 (중요 알림만)
+    else SMS 알림 (중요 알림만)
         alt SMS 수신 허용 && 중요 알림
             NotifyService -> Queue: enqueue(SMSNotificationTask)
 

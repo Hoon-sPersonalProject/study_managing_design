@@ -64,12 +64,12 @@ par 병렬 처리
     SearchService -> SearchIdx: index study data
     SearchIdx --> SearchService: indexed
     deactivate SearchService
-'and
+else
     Service -> NotifyService: sendStudyCreatedNotification(study)
     activate NotifyService
     NotifyService -> NotifyService: createNotification(leaderId, STUDY_CREATED)
     deactivate NotifyService
-'and
+else
     Service -> AuditService: logStudyCreation(userId, studyId)
     activate AuditService
     AuditService -> DB: INSERT INTO audit_log

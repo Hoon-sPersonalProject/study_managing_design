@@ -71,7 +71,7 @@ alt 자동 승인 정책
     == 자동 승인 알림 ==
     par
         AppService -> NotifyService: sendApplicationApprovedNotification(applicantId, study)
-'    and
+    else
         AppService -> NotifyService: sendNewMemberJoinedNotification(leaderId, applicant, study)
     end
 
@@ -125,7 +125,7 @@ deactivate StudyService
 == 승인 알림 발송 ==
 par
     AppService -> NotifyService: sendApplicationApprovedNotification(applicantId, study)
-'and
+else
     AppService -> NotifyService: sendNewMemberJoinedNotification(leaderId, applicant, study)
 end
 

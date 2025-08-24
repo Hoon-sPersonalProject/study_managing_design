@@ -51,18 +51,18 @@ par 병렬 조회
     DB --> UserRepo: user data
     UserRepo --> UserService: User
     deactivate UserRepo
-'and
+else
     UserService -> UserRepo: getUserStudyHistory(userId)
     UserRepo -> DB: SELECT s.*, sm.role, sm.joined_at\nFROM study s\nJOIN study_member sm ON s.id = sm.study_id\nWHERE sm.user_id = ?\nORDER BY sm.joined_at DESC
     DB --> UserRepo: study participation history
-'and
+else
     UserService -> SanctionRepo: findByUserId(userId)
     activate SanctionRepo
     SanctionRepo -> DB: SELECT * FROM sanction\nWHERE user_id = ?\nORDER BY imposed_at DESC
     DB --> SanctionRepo: sanction history
     SanctionRepo --> UserService: List<Sanction>
     deactivate SanctionRepo
-'and
+else
     UserService -> UserRepo: getReportHistory(userId)
     UserRepo -> DB: SELECT r.*, u.nickname as reporter_name\nFROM report r\nJOIN user u ON r.reporter_id = u.id\nWHERE r.reported_id = ?\nORDER BY r.created_at DESC
     DB --> UserRepo: report history

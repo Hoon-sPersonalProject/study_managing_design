@@ -1,5 +1,5 @@
 @startuml
-title 회원가입 시퀀스 다이어그램
+title 사용자 회원가입 시퀀스 다이어그램
 
 actor "게스트" as Guest
 participant "AuthController" as Controller
@@ -11,7 +11,7 @@ participant "NotificationService" as NotifyService
 participant "AuditService" as AuditService
 participant "CacheService" as CacheService
 database "Database" as DB
-'external "EmailGateway" as EmailGW
+actor "EmailGateway" as EmailGW
 
 == 회원가입 요청 ==
 Guest -> Controller: POST /api/auth/register\n{\n  "email": "user@example.com",\n  "password": "password123",\n  "nickname": "닉네임",\n  "profileImageUrl": "https://..."\n}

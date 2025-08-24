@@ -185,7 +185,7 @@ alt 유죄 판정 (제재 부과)
         activate NotifyService
         NotifyService -> NotifyService: createNotification(reportedId, SANCTION_IMPOSED, sanctionDetails)
         deactivate NotifyService
-'    and
+    else
         ModerationService -> NotifyService: sendReportResolutionNotification(reporterId, decision, action)
         NotifyService -> NotifyService: createNotification(reporterId, REPORT_RESOLVED, resolution)
     end

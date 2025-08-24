@@ -1,0 +1,309 @@
+@startuml
+title 스터디 멤버 관리 시퀀스 다이어그램
+
+actor "스터디 리더" as Leader
+participant "MemberController" as Controller
+participant "MembershipService" as MemberService
+participant "StudyMember" as MemberDomain
+participant "Study" as StudyDomain
+participant "StudyMemberRepository" as MemberRepo
+participant "StudyRepository" as StudyRepo
+participant "UserRepository" as UserRepo
+participant "NotificationService" as NotifyService
+participant "AuditService" as AuditService
+participant "CacheService" as CacheService
+database "Database" as DB
+
+== 스터디 멤버 목록 조회 ==
+Leader -> Controller: GET /api/studies/{studyId}/members
+activate Controller
+
+Controller -> MemberService: getStudyMembers(studyId, leaderId)
+activate MemberService
+
+== 권한 검증 ==
+MemberService -> MemberService: validateViewPermission(studyId, leaderId)
+
+MemberService -> StudyRepo: findById(studyId)
+activate StudyRepo
+StudyRepo -> DB: SELECT * FROM study WHERE id = ?
+DB --> StudyRepo: study data
+StudyRepo --> MemberService: Study
+deactivate StudyRepo
+
+alt 리더 권한 없음
+    MemberService --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "not authorized"}
+end
+
+== 멤버 목록 조회 ==
+MemberService -> MemberRepo: findByStudyIdWithUserInfo(studyId)
+activate MemberRepo
+MemberRepo -> DB: SELECT sm.*, u.nickname, u.profile_image_url, u.last_login_at\nFROM study_member sm\nJOIN user u ON sm.user_id = u.id\nWHERE sm.study_id = ?\nORDER BY sm.joined_at ASC
+DB --> MemberRepo: members with user info
+MemberRepo --> MemberService: List<StudyMemberWithUser>
+deactivate MemberRepo
+
+MemberService -> MemberService: enrichMemberInfo(members)
+note right: 각 멤버의 추가 정보:\n- 참여 기간\n- 최근 활동\n- 기여도 점수 등
+
+MemberService --> Controller: MemberListResponse
+deactivate MemberService
+
+Controller --> Leader: 200 OK\n{\n  "members": [\n    {\n      "id": 123,\n      "user": {...},\n      "role": "MEMBER",\n      "joinedAt": "2024-08-01T00:00:00Z",\n      "lastActivity": "2024-08-20T15:30:00Z",\n      "contributionScore": 85\n    }\n  ]\n}
+deactivate Controller
+
+== 멤버 추방 ==
+Leader -> Controller: DELETE /api/studies/{studyId}/members/{userId}\n{reason: "규칙 위반"}
+activate Controller
+
+Controller -> MemberService: removeMember(studyId, userId, leaderId, reason)
+activate MemberService
+
+== 추방 권한 검증 ==
+MemberService -> MemberService: validateRemovalPermission(studyId, userId, leaderId)
+
+alt 자기 자신 추방 시도
+    MemberService --> Controller: InvalidOperationException
+    Controller --> Leader: 400 Bad Request\n{error: "cannot remove yourself"}
+end
+
+alt 다른 리더 추방 시도
+    MemberService --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "cannot remove another leader"}
+end
+
+== 멤버 정보 조회 ==
+MemberService -> MemberRepo: findByStudyIdAndUserId(studyId, userId)
+activate MemberRepo
+MemberRepo -> DB: SELECT * FROM study_member WHERE study_id = ? AND user_id = ?
+DB --> MemberRepo: member data
+MemberRepo --> MemberService: StudyMember
+deactivate MemberRepo
+
+alt 멤버가 아님
+    MemberService --> Controller: NotMemberException
+    Controller --> Leader: 404 Not Found\n{error: "user is not a member"}
+end
+
+== 추방 처리 ==
+MemberService -> MemberDomain: remove(reason)
+activate MemberDomain
+MemberDomain -> MemberDomain: markAsRemoved(reason)
+MemberDomain -> MemberDomain: setRemovedAt(now())
+deactivate MemberDomain
+
+MemberService -> MemberRepo: delete(member)
+activate MemberRepo
+MemberRepo -> DB: DELETE FROM study_member WHERE study_id = ? AND user_id = ?
+DB --> MemberRepo: success
+deactivate MemberRepo
+
+== 스터디 참가자 수 감소 ==
+MemberService -> StudyDomain: decreaseParticipants()
+activate StudyDomain
+StudyDomain -> StudyDomain: currentParticipants--
+deactivate StudyDomain
+
+MemberService -> StudyRepo: save(study)
+StudyRepo -> DB: UPDATE study SET current_participants = current_participants - 1
+
+== 대기자 자동 승격 ==
+MemberService -> MemberService: processWaitingList(studyId)
+
+MemberService -> MemberRepo: findOldestWaitingApplicant(studyId)
+MemberRepo -> DB: SELECT * FROM application\nWHERE study_id = ? AND status = 'WAITLISTED'\nORDER BY applied_at LIMIT 1
+
+alt 대기자 존재
+    MemberService -> MemberService: autoApproveWaitingApplicant(waitingApplication)
+
+    par
+        MemberService -> NotifyService: sendAutoPromotionNotification(waitingApplicant)
+    else
+        MemberService -> NotifyService: sendNewMemberNotification(leaderId, waitingApplicant)
+    end fork
+end
+
+== 추방 알림 및 로그 ==
+par
+    MemberService -> NotifyService: sendRemovalNotification(userId, studyId, reason)
+    activate NotifyService
+    NotifyService -> NotifyService: createRemovalNotification(userId, removalDetails)
+    deactivate NotifyService
+else
+    MemberService -> AuditService: logMemberRemoval(studyId, userId, leaderId, reason)
+    activate AuditService
+    AuditService -> DB: INSERT INTO audit_log
+    deactivate AuditService
+else
+    MemberService -> CacheService: evictMemberCache(studyId)
+    activate CacheService
+    CacheService -> CacheService: evict("study_members:" + studyId)
+    deactivate CacheService
+end fork
+
+MemberService --> Controller: RemovalResult
+deactivate MemberService
+
+Controller --> Leader: 200 OK\n{message: "멤버가 추방되었습니다."}
+deactivate Controller
+
+== 멤버 역할 변경 ==
+Leader -> Controller: PUT /api/studies/{studyId}/members/{userId}/role\n{role: "SUB_LEADER"}
+activate Controller
+
+Controller -> MemberService: changeRole(studyId, userId, newRole, leaderId)
+activate MemberService
+
+== 역할 변경 권한 검증 ==
+MemberService -> MemberService: validateRoleChangePermission(studyId, userId, newRole, leaderId)
+
+alt 부리더 임명 권한 없음
+    MemberService --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "insufficient permission"}
+end
+
+== 현재 멤버 역할 확인 ==
+MemberService -> MemberRepo: findByStudyIdAndUserId(studyId, userId)
+MemberRepo -> DB: SELECT * FROM study_member WHERE study_id = ? AND user_id = ?
+DB --> MemberRepo: current member data
+MemberRepo --> MemberService: currentMember
+
+alt 이미 동일한 역할
+    MemberService --> Controller: InvalidStateException
+    Controller --> Leader: 400 Bad Request\n{error: "user already has this role"}
+end
+
+== 역할 변경 처리 ==
+MemberService -> MemberDomain: changeRole(newRole)
+activate MemberDomain
+MemberDomain -> MemberDomain: validateRoleTransition(currentRole, newRole)
+MemberDomain -> MemberDomain: setRole(newRole)
+MemberDomain -> MemberDomain: setRoleChangedAt(now())
+deactivate MemberDomain
+
+MemberService -> MemberRepo: save(updatedMember)
+activate MemberRepo
+MemberRepo -> DB: UPDATE study_member\nSET role = ?, role_changed_at = NOW()\nWHERE study_id = ? AND user_id = ?
+DB --> MemberRepo: success
+MemberRepo --> MemberService: updatedMember
+deactivate MemberRepo
+
+== 역할 변경 알림 ==
+par
+    MemberService -> NotifyService: sendRoleChangeNotification(userId, studyId, newRole)
+    activate NotifyService
+    NotifyService -> NotifyService: createRoleChangeNotification(userId, roleChangeDetails)
+    deactivate NotifyService
+else
+    MemberService -> AuditService: logRoleChange(studyId, userId, currentRole, newRole, leaderId)
+    AuditService -> DB: INSERT INTO audit_log
+else
+    MemberService -> CacheService: evictMemberCache(studyId)
+    CacheService -> CacheService: evict("study_members:" + studyId)
+end fork
+
+MemberService --> Controller: RoleChangeResult
+deactivate MemberService
+
+Controller --> Leader: 200 OK\n{\n  "message": "멤버 역할이 변경되었습니다.",\n  "newRole": "SUB_LEADER"\n}
+deactivate Controller
+
+== 리더 위임 ==
+Leader -> Controller: PUT /api/studies/{studyId}/transfer-leadership\n{newLeaderId: 456}
+activate Controller
+
+Controller -> MemberService: transferLeadership(studyId, newLeaderId, currentLeaderId)
+activate MemberService
+
+== 위임 권한 및 자격 검증 ==
+MemberService -> MemberService: validateLeadershipTransfer(studyId, newLeaderId, currentLeaderId)
+
+MemberService -> MemberRepo: findByStudyIdAndUserId(studyId, newLeaderId)
+MemberRepo -> DB: SELECT * FROM study_member WHERE study_id = ? AND user_id = ?
+DB --> MemberRepo: new leader member data
+MemberRepo --> MemberService: newLeaderMember
+
+alt 대상자가 멤버가 아님
+    MemberService --> Controller: NotMemberException
+    Controller --> Leader: 400 Bad Request\n{error: "target user is not a member"}
+end
+
+alt 이미 리더임
+    MemberService --> Controller: InvalidStateException
+    Controller --> Leader: 400 Bad Request\n{error: "user is already a leader"}
+end
+
+== 위임 승낙 확인 ==
+MemberService -> NotifyService: sendLeadershipTransferRequest(newLeaderId, studyId, currentLeaderId)
+NotifyService -> NotifyService: createTransferRequestNotification(newLeaderId, transferDetails)
+
+MemberService --> Controller: TransferRequestSent
+Controller --> Leader: 202 Accepted\n{\n  "message": "리더 위임 요청이 발송되었습니다.",\n  "requestId": "LTR-2024-001234"\n}
+
+== 새 리더의 승낙 처리 ==
+actor "새 리더" as NewLeader
+
+NewLeader -> Controller: POST /api/studies/{studyId}/leadership-transfer/{requestId}/accept
+activate Controller
+
+Controller -> MemberService: acceptLeadershipTransfer(studyId, requestId, newLeaderId)
+activate MemberService
+
+== 위임 처리 ==
+MemberService -> StudyDomain: changeLeader(newLeaderId)
+activate StudyDomain
+StudyDomain -> StudyDomain: setLeaderId(newLeaderId)
+StudyDomain -> StudyDomain: setLeaderChangedAt(now())
+deactivate StudyDomain
+
+MemberService -> StudyRepo: save(studyWithNewLeader)
+StudyRepo -> DB: UPDATE study SET leader_id = ?, leader_changed_at = NOW()
+
+== 멤버 역할 업데이트 ==
+par
+    MemberService -> MemberRepo: updateRole(studyId, newLeaderId, LEADER)
+    MemberRepo -> DB: UPDATE study_member SET role = 'LEADER' WHERE study_id = ? AND user_id = ?
+else
+    MemberService -> MemberRepo: updateRole(studyId, currentLeaderId, MEMBER)
+    MemberRepo -> DB: UPDATE study_member SET role = 'MEMBER' WHERE study_id = ? AND user_id = ?
+end fork
+
+== 위임 완료 알림 ==
+par
+    MemberService -> NotifyService: sendLeadershipTransferComplete(currentLeaderId, studyId)
+else
+    MemberService -> NotifyService: sendLeadershipReceived(newLeaderId, studyId)
+else
+    MemberService -> NotifyService: sendLeaderChangeAnnouncement(studyMembers, oldLeader, newLeader)
+else
+    MemberService -> AuditService: logLeadershipTransfer(studyId, currentLeaderId, newLeaderId)
+else
+    MemberService -> CacheService: evictStudyCache(studyId)
+    CacheService -> CacheService: evict("study_*:" + studyId)
+end
+
+MemberService --> Controller: TransferCompleted
+deactivate MemberService
+
+Controller --> NewLeader: 200 OK\n{message: "리더십이 성공적으로 이전되었습니다."}
+deactivate Controller
+
+== 예외 처리 ==
+alt 권한 없음
+    MemberService --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "not authorized"}
+else 멤버 없음
+    MemberService --> Controller: NotMemberException
+    Controller --> Leader: 404 Not Found\n{error: "member not found"}
+else 잘못된 상태
+    MemberService --> Controller: InvalidStateException
+    Controller --> Leader: 400 Bad Request\n{error: "invalid operation"}
+else 리더 위임 거절
+    NewLeader -> Controller: POST /api/studies/{studyId}/leadership-transfer/{requestId}/decline
+    Controller -> MemberService: declineLeadershipTransfer(requestId, reason)
+    MemberService -> NotifyService: sendTransferDeclined(currentLeaderId, reason)
+    Controller --> NewLeader: 200 OK\n{message: "위임 요청이 거절되었습니다."}
+end
+
+@enduml

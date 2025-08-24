@@ -65,7 +65,7 @@ end
 MemberService -> MemberService: validateLeavingConditions(study, member)
 note right: - 진행중인 정산이 없는지\n- 제재 상태가 아닌지\n- 정책상 탈퇴 제한이 없는지
 
-== 역할/리소스 정리 ==
+== 역할/소유 리소스 정리 ==
 MemberService -> MemberService: cleanupMemberResources(studyId, userId)
 note right: - 멤버 권한 회수\n- 작성한 일정/게시물 권한 정리\n- 개인 데이터 정책에 따른 처리
 
@@ -135,14 +135,14 @@ par 병렬 처리
     activate NotifyService
     NotifyService -> NotifyService: createNotification(leaderId, MEMBER_LEFT, memberInfo)
     deactivate NotifyService
-'and
+else
     == 캐시 무효화 ==
     MemberService -> CacheService: evictStudyMemberCache(studyId)
     activate CacheService
     CacheService -> CacheService: invalidate("study_members:" + studyId)
     CacheService -> CacheService: invalidate("participation_status:" + userId)
     deactivate CacheService
-'and
+else
     == 감사 로그 기록 ==
     MemberService -> AuditService: logMemberLeaving(userId, studyId, reason)
     activate AuditService

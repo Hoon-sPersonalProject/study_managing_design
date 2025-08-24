@@ -1,0 +1,259 @@
+@startuml
+title 스터디 정보 수정 시퀀스 다이어그램
+
+actor "스터디 리더" as Leader
+participant "StudyController" as Controller
+participant "StudyService" as Service
+participant "Study" as StudyDomain
+participant "StudyRepository" as StudyRepo
+participant "FileStorageService" as FileService
+participant "SearchService" as SearchService
+participant "NotificationService" as NotifyService
+participant "AuditService" as AuditService
+participant "CacheService" as CacheService
+database "Database" as DB
+actor "FileStorage" as Storage
+
+== 스터디 수정 페이지 접근 ==
+Leader -> Controller: GET /api/studies/{studyId}/edit
+activate Controller
+
+Controller -> Service: getStudyForEdit(studyId, leaderId)
+activate Service
+
+== 권한 검증 ==
+Service -> Service: validateEditPermission(studyId, leaderId)
+
+Service -> StudyRepo: findById(studyId)
+activate StudyRepo
+StudyRepo -> DB: SELECT * FROM study WHERE id = ?
+DB --> StudyRepo: study data
+StudyRepo --> Service: Study
+deactivate StudyRepo
+
+alt 스터디가 존재하지 않음
+    Service --> Controller: StudyNotFoundException
+    Controller --> Leader: 404 Not Found\n{error: "study not found"}
+else 리더가 아님
+    Service --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "not study leader"}
+end
+
+Service --> Controller: StudyEditResponse
+deactivate Service
+
+Controller --> Leader: 200 OK\n{study edit form data}
+deactivate Controller
+
+== 스터디 정보 수정 요청 ==
+Leader -> Controller: PUT /api/studies/{studyId}\n(UpdateStudyRequest)
+activate Controller
+
+Controller -> Controller: validateRequest(updateRequest)
+note right: 필수 필드, 길이 제한, 형식 검증
+
+Controller -> Service: updateStudy(studyId, leaderId, updateRequest)
+activate Service
+
+== 수정 권한 및 상태 검증 ==
+Service -> Service: validateUpdatePermission(studyId, leaderId)
+
+Service -> StudyRepo: findById(studyId)
+StudyRepo -> DB: SELECT * FROM study WHERE id = ?
+DB --> StudyRepo: current study data
+StudyRepo --> Service: currentStudy
+
+Service -> Service: validateStudyState(currentStudy)
+note right: 진행중이거나 완료된 스터디는\n일부 필드 수정 제한
+
+== 동시 수정 충돌 검증 ==
+Service -> Service: checkConcurrentModification(studyId, lastModifiedTime)
+alt 다른 사용자가 먼저 수정한 경우
+    Service --> Controller: ConcurrentModificationException
+    Controller --> Leader: 409 Conflict\n{\n  "error": "study was modified by another user",\n  "currentVersion": {...}\n}
+end
+
+== 정책 및 내용 검증 ==
+Service -> Service: validateContentPolicy(updateRequest)
+note right: - 금지어 검사\n- 스팸 패턴 검사\n- 길이 제한 확인
+
+Service -> Service: validateBusinessRules(updateRequest, currentStudy)
+note right: - 정원 감소 시 현재 멤버 수 확인\n- 공개범위 변경 시 정책 확인\n- 태그 개수 제한 확인
+
+alt 현재 멤버 수보다 적은 정원으로 변경 시도
+    Service --> Controller: InvalidParticipantLimitException
+    Controller --> Leader: 400 Bad Request\n{error: "cannot reduce limit below current member count"}
+end
+
+== 민감 필드 변경 승인 확인 ==
+Service -> Service: checkSensitiveFieldChanges(currentStudy, updateRequest)
+
+alt 관리자 승인이 필요한 변경사항
+    note right: 공개범위 변경, 대폭적인 정원 증가 등
+    Service -> Service: requestAdminApproval(studyId, changes)
+    Service --> Controller: AdminApprovalRequiredResponse
+    Controller --> Leader: 202 Accepted\n{\n  "message": "changes submitted for admin approval",\n  "approvalId": "APV-2024-001234"\n}
+end
+
+== 커버 이미지 처리 ==
+alt 새 커버 이미지 업로드
+    Service -> FileService: uploadStudyCoverImage(studyId, imageFile)
+    activate FileService
+
+    FileService -> FileService: validateImageFile(imageFile)
+    note right: - 파일 크기 제한\n- 이미지 형식 검증\n- 악성 파일 검사
+
+    FileService -> FileService: resizeAndOptimizeImage(imageFile)
+
+    FileService -> Storage: uploadFile(optimizedImage, studyId)
+    activate Storage
+    Storage --> FileService: imageUrl
+    deactivate Storage
+
+    alt 기존 이미지 존재
+        FileService -> FileService: deleteOldImage(currentStudy.coverImageUrl)
+    end
+
+    FileService --> Service: newImageUrl
+    deactivate FileService
+end
+
+== 스터디 정보 업데이트 ==
+Service -> Service: normalizeAndStandardizeData(updateRequest)
+note right: - 태그 표준화\n- 지역 정규화\n- 텍스트 정제
+
+Service -> StudyDomain: updateInfo(updateRequest)
+activate StudyDomain
+
+StudyDomain -> StudyDomain: validateUpdateData(updateRequest)
+StudyDomain -> StudyDomain: applyChanges(updateRequest)
+StudyDomain -> StudyDomain: setUpdatedAt(now())
+StudyDomain -> StudyDomain: incrementVersion()
+
+deactivate StudyDomain
+
+Service -> StudyRepo: save(updatedStudy)
+activate StudyRepo
+StudyRepo -> DB: UPDATE study SET\ntitle = ?, description = ?, tags = ?,\nregion = ?, max_participants = ?,\nvisibility = ?, cover_image_url = ?,\nupdated_at = NOW(), version = version + 1\nWHERE id = ?
+DB --> StudyRepo: success
+StudyRepo --> Service: updatedStudy
+deactivate StudyRepo
+
+== 후처리 작업 ==
+par 병렬 처리
+    == 검색 인덱스 갱신 ==
+    Service -> SearchService: reindexStudy(updatedStudy)
+    activate SearchService
+    SearchService -> SearchService: updateStudyInSearchIndex(updatedStudy)
+    deactivate SearchService
+
+else
+    == 캐시 무효화 ==
+    Service -> CacheService: evictStudyCache(studyId)
+    activate CacheService
+    CacheService -> CacheService: evict("study_detail:" + studyId)
+    CacheService -> CacheService: evict("study_list:*")
+    deactivate CacheService
+
+else
+    == 변경 알림 발송 ==
+    Service -> Service: determineSignificantChanges(currentStudy, updatedStudy)
+
+    alt 멤버들에게 알림이 필요한 변경사항
+        Service -> NotifyService: sendStudyUpdateNotification(studyId, changes)
+        activate NotifyService
+
+        NotifyService -> NotifyService: getStudyMembers(studyId)
+        NotifyService -> NotifyService: createUpdateNotifications(members, changes)
+
+        note right: 중요 변경사항:\n- 일정 변경\n- 공개범위 변경\n- 정원 변경\n- 모집 상태 변경
+
+        deactivate NotifyService
+    end
+
+else
+    == 감사 로그 기록 ==
+    Service -> AuditService: logStudyUpdate(studyId, leaderId, changes)
+    activate AuditService
+    AuditService -> DB: INSERT INTO audit_log\n(event_type, study_id, user_id, changes, created_at)
+    deactivate AuditService
+
+else
+    == 변경 이력 저장 ==
+    Service -> Service: saveChangeHistory(studyId, currentStudy, updatedStudy, leaderId)
+    Service -> DB: INSERT INTO study_change_history\n(study_id, changed_by, changes, previous_values, created_at)
+end
+
+Service --> Controller: UpdateResult
+deactivate Service
+
+Controller --> Leader: 200 OK\n{\n  "message": "스터디 정보가 업데이트되었습니다.",\n  "study": updatedStudyResponse,\n  "changesRequireApproval": false\n}
+deactivate Controller
+
+== 변경 이력 조회 ==
+Leader -> Controller: GET /api/studies/{studyId}/history
+activate Controller
+
+Controller -> Service: getStudyChangeHistory(studyId, leaderId)
+activate Service
+
+Service -> Service: validateHistoryViewPermission(studyId, leaderId)
+
+Service -> StudyRepo: getChangeHistory(studyId)
+activate StudyRepo
+StudyRepo -> DB: SELECT sch.*, u.nickname as changed_by_name\nFROM study_change_history sch\nJOIN user u ON sch.changed_by = u.id\nWHERE sch.study_id = ?\nORDER BY sch.created_at DESC\nLIMIT 20
+DB --> StudyRepo: change history
+StudyRepo --> Service: List<StudyChangeHistory>
+deactivate StudyRepo
+
+Service --> Controller: ChangeHistoryResponse
+deactivate Service
+
+Controller --> Leader: 200 OK\n{\n  "history": [\n    {\n      "changedAt": "2024-08-25T10:30:00Z",\n      "changedBy": "리더닉네임",\n      "changes": {\n        "title": {"from": "이전 제목", "to": "새 제목"},\n        "maxParticipants": {"from": 10, "to": 15}\n      }\n    }\n  ]\n}
+deactivate Controller
+
+== 버전 충돌 해결 ==
+alt 동시 수정으로 인한 충돌 발생 시
+    Leader -> Controller: GET /api/studies/{studyId}/conflicts/{conflictId}
+    activate Controller
+
+    Controller -> Service: getConflictResolution(studyId, conflictId)
+    activate Service
+
+    Service -> Service: generateConflictResolutionView(currentVersion, userChanges)
+
+    Service --> Controller: ConflictResolutionResponse
+    deactivate Service
+
+    Controller --> Leader: 200 OK\n{\n  "conflicts": [\n    {\n      "field": "description",\n      "current": "현재 DB 값",\n      "yours": "사용자가 입력한 값",\n      "resolution": "merge_required"\n    }\n  ]\n}
+    deactivate Controller
+
+    Leader -> Controller: POST /api/studies/{studyId}/resolve-conflicts\n{resolved changes}
+
+    Controller -> Service: resolveConflictsAndUpdate(studyId, resolvedChanges)
+    Service -> Service: applyResolvedChanges(resolvedChanges)
+
+    Service --> Controller: resolution success
+    Controller --> Leader: 200 OK\n{message: "충돌이 해결되고 변경사항이 적용되었습니다."}
+end
+
+== 예외 처리 ==
+alt 스터디 없음
+    Service --> Controller: StudyNotFoundException
+    Controller --> Leader: 404 Not Found\n{error: "study not found"}
+else 권한 없음
+    Service --> Controller: AccessDeniedException
+    Controller --> Leader: 403 Forbidden\n{error: "only study leader can edit"}
+else 유효성 검증 실패
+    Service --> Controller: ValidationException
+    Controller --> Leader: 400 Bad Request\n{\n  "error": "validation failed",\n  "details": [...]\n}
+else 동시 수정 충돌
+    Service --> Controller: ConcurrentModificationException
+    Controller --> Leader: 409 Conflict\n{error: "study was modified by another user"}
+else 파일 업로드 실패
+    FileService --> Service: FileUploadException
+    Service --> Controller: FileUploadException
+    Controller --> Leader: 500 Internal Server Error\n{error: "file upload failed"}
+end
+
+@enduml

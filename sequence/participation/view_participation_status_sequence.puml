@@ -65,10 +65,10 @@ else 캐시 미스
         par 병렬 조회
             MemberService -> StudyRepo: getStudyLeaderInfo(studyId)
             StudyRepo -> DB: SELECT u.nickname, u.profile_image_url\nFROM user u JOIN study s ON u.id = s.leader_id\nWHERE s.id = ?
-'        and
+        else
             MemberService -> MemberService: calculateAvailableActions(participation)
             note right: 상태별 가능한 액션:\n- 취소 (대기중)\n- 재신청 (거절됨, 정책 허용시)\n- 탈퇴 (참여중)
-'        and
+        else
             MemberService -> StudyRepo: getUpcomingSchedules(studyId, limit=3)
             StudyRepo -> DB: SELECT * FROM schedule\nWHERE study_id = ? AND start_time > NOW()\nORDER BY start_time LIMIT 3
         end
