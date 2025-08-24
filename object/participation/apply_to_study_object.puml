@@ -1,0 +1,104 @@
+@startuml
+title 스터디 신청 객체 다이어그램
+
+object applicant {
+    id = "usr_003"
+    email = "applicant@example.com"
+    nickname = "eager_learner"
+    status = "ACTIVE"
+    studyApplicationsCount = 2
+    studyParticipationsCount = 1
+}
+
+object study {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    maxMembers = 8
+    currentMembers = 5
+    status = "RECRUITING"
+    requiresApproval = true
+    leaderId = "usr_001"
+}
+
+object application {
+    id = "app_001"
+    studyId = "std_001"
+    applicantId = "usr_003"
+    message = "JavaScript 경험이 2년 있으며 함께 성장하고 싶습니다."
+    status = "PENDING"
+    appliedAt = "2024-01-15T20:00:00Z"
+    reviewedAt = null
+    reviewedBy = null
+}
+
+object validation {
+    canApply = true
+    notAlreadyMember = true
+    notAlreadyApplied = true
+    studyNotFull = true
+    userEligible = true
+    messageValid = true
+}
+
+object leader {
+    id = "usr_001"
+    nickname = "study_leader"
+    role = "USER"
+    newApplicationsNotif = true
+    emailNotif = true
+    pushNotif = true
+}
+
+object leaderNotification {
+    id = "ntf_005"
+    userId = "usr_001"
+    type = "NEW_APPLICATION"
+    title = "새로운 스터디 신청이 있습니다"
+    content = "eager_learner님이 자바스크립트 심화 스터디에 신청했습니다"
+    relatedId = "app_001"
+    createdAt = "2024-01-15T20:00:01Z"
+    isRead = false
+}
+
+object applicantNotification {
+    id = "ntf_006"
+    userId = "usr_003"
+    type = "APPLICATION_SUBMITTED"
+    title = "스터디 신청이 완료되었습니다"
+    content = "자바스크립트 심화 스터디 신청이 접수되었습니다. 검토까지 최대 3일 소요됩니다."
+    relatedId = "app_001"
+    createdAt = "2024-01-15T20:00:01Z"
+}
+
+object audit {
+    id = "log_005"
+    action = "STUDY_APPLICATION_SUBMITTED"
+    userId = "usr_003"
+    studyId = "std_001"
+    applicationId = "app_001"
+    timestamp = "2024-01-15T20:00:00Z"
+    details = "User applied to study with message"
+}
+
+object queue {
+    studyId = "std_001"
+    pendingCount = 3
+    oldestApplicationDate = "2024-01-14T15:00:00Z"
+    averageReviewTime = "2.5 days"
+}
+
+applicant -- application : submits
+study -- application : receives
+application -- validation : validates
+study -- leader : managed_by
+application -- leaderNotification : triggers
+application -- applicantNotification : confirms
+application -- audit : logs
+study -- queue : queues_in
+
+note top of applicant : 스터디에 신청하는 사용자
+note top of application : 스터디 가입 신청서
+note top of leader : 신청을 검토할 스터디 리더
+note top of queue : 대기 중인 신청 목록
+
+@enduml

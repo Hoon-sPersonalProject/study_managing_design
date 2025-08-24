@@ -1,0 +1,102 @@
+@startuml
+title 스터디 탈퇴 객체 다이어그램
+
+object member {
+    id = "usr_003"
+    nickname = "leaving_member"
+    status = "ACTIVE"
+    studyParticipations = 3
+}
+
+object study {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    maxMembers = 8
+    currentMembers = 5
+    status = "ACTIVE"
+    leaderId = "usr_001"
+}
+
+object membership {
+    id = "mbr_003"
+    studyId = "std_001"
+    userId = "usr_003"
+    role = "MEMBER"
+    status = "ACTIVE"
+    joinedAt = "2024-01-10T09:00:00Z"
+    leftAt = null
+}
+
+object leaveRequest {
+    id = "lr_001"
+    studyId = "std_001"
+    userId = "usr_003"
+    reason = "시간이 부족해서 참여하기 어려워졌습니다"
+    requestedAt = "2024-01-16T15:00:00Z"
+    status = "COMPLETED"
+}
+
+object updatedMembership {
+    id = "mbr_003"
+    studyId = "std_001"
+    userId = "usr_003"
+    role = "MEMBER"
+    status = "LEFT"
+    joinedAt = "2024-01-10T09:00:00Z"
+    leftAt = "2024-01-16T15:00:00Z"
+}
+
+object updatedStudy {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    maxMembers = 8
+    currentMembers = 4
+    status = "RECRUITING"
+    leaderId = "usr_001"
+}
+
+object leaderNotification {
+    id = "ntf_011"
+    userId = "usr_001"
+    type = "MEMBER_LEFT"
+    title = "멤버가 스터디를 떠났습니다"
+    content = "leaving_member님이 자바스크립트 심화 스터디에서 탈퇴했습니다"
+    relatedId = "std_001"
+    createdAt = "2024-01-16T15:00:01Z"
+    isRead = false
+}
+
+object confirmationNotification {
+    id = "ntf_012"
+    userId = "usr_003"
+    type = "LEAVE_CONFIRMED"
+    title = "스터디 탈퇴가 완료되었습니다"
+    content = "자바스크립트 심화 스터디에서 성공적으로 탈퇴했습니다"
+    relatedId = "std_001"
+    createdAt = "2024-01-16T15:00:01Z"
+}
+
+object leaveAudit {
+    id = "log_007"
+    action = "MEMBER_LEFT_STUDY"
+    userId = "usr_003"
+    studyId = "std_001"
+    timestamp = "2024-01-16T15:00:00Z"
+    details = "Member voluntarily left study"
+    reason = "시간이 부족해서 참여하기 어려워졌습니다"
+}
+
+member -- leaveRequest : submits
+study -- leaveRequest : processes
+membership -- updatedMembership : becomes
+study -- updatedStudy : becomes
+leaveRequest -- leaderNotification : triggers
+leaveRequest -- confirmationNotification : confirms
+leaveRequest -- leaveAudit : logs
+
+note top of member : 탈퇴하는 스터디 멤버
+note top of leaveRequest : 탈퇴 요청
+note top of updatedMembership : 탈퇴 후 멤버십 상태
+note top of updatedStudy : 멤버 수가 감소한 스터디
+
+@enduml

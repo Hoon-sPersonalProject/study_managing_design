@@ -1,0 +1,96 @@
+@startuml
+title 관리자 사용자 관리 객체 다이어그램
+
+object admin {
+    id = "usr_admin"
+    email = "admin@example.com"
+    nickname = "admin_master"
+    role = "ADMIN"
+    status = "ACTIVE"
+    permissions = ["USER_MANAGEMENT", "SUSPEND_USER", "DELETE_USER"]
+}
+
+object targetUser {
+    id = "usr_002"
+    email = "target@example.com"
+    nickname = "problem_user"
+    status = "SUSPENDED"
+    suspendedAt = "2024-01-15T16:00:00Z"
+    suspendedUntil = "2024-01-22T16:00:00Z"
+    suspensionReason = "스팸 행위"
+}
+
+object searchCriteria {
+    keyword = "problem"
+    status = ["ACTIVE", "SUSPENDED"]
+    startDate = "2024-01-01"
+    endDate = "2024-01-15"
+    page = 1
+    size = 20
+    sortBy = "createdAt"
+    sortDirection = "DESC"
+}
+
+object searchResult {
+    totalElements = 1
+    totalPages = 1
+    currentPage = 1
+    size = 20
+    hasNext = false
+    hasPrevious = false
+}
+
+object suspension {
+    id = "sus_001"
+    userId = "usr_002"
+    adminId = "usr_admin"
+    reason = "스팸 행위"
+    suspendedAt = "2024-01-15T16:00:00Z"
+    suspendedUntil = "2024-01-22T16:00:00Z"
+    isActive = true
+    evidence = "다수의 스팸 게시글 작성"
+}
+
+object stats {
+    userId = "usr_002"
+    studyParticipations = 5
+    studiesCreated = 2
+    reportCount = 3
+    suspensionCount = 1
+    lastActivity = "2024-01-15T15:30:00Z"
+}
+
+object notification {
+    id = "ntf_002"
+    userId = "usr_002"
+    type = "ACCOUNT_SUSPENDED"
+    title = "계정이 정지되었습니다"
+    content = "사유: 스팸 행위, 기간: 7일"
+    sentAt = "2024-01-15T16:00:01Z"
+}
+
+object adminAudit {
+    id = "log_003"
+    action = "USER_SUSPENDED"
+    performedBy = "usr_admin"
+    targetUserId = "usr_002"
+    timestamp = "2024-01-15T16:00:00Z"
+    details = "User suspended for spam activity"
+    reason = "스팸 행위"
+}
+
+admin -- searchCriteria : searches_with
+searchCriteria -- searchResult : produces
+admin -- suspension : creates
+targetUser -- suspension : receives
+targetUser -- stats : has
+targetUser -- notification : receives
+admin -- adminAudit : generates
+suspension -- adminAudit : logs
+
+note top of admin : 사용자를 관리하는 관리자
+note top of targetUser : 제재를 받은 사용자
+note top of suspension : 계정 정지 기록
+note top of stats : 사용자 활동 통계
+
+@enduml

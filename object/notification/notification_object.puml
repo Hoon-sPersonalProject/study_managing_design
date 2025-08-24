@@ -1,0 +1,131 @@
+@startuml
+title 알림 객체 다이어그램
+
+object user {
+    id = "usr_001"
+    nickname = "active_user"
+    email = "user@example.com"
+    emailNotif = true
+    pushNotif = true
+    inAppNotif = true
+    studyUpdatesNotif = true
+    applicationsNotif = true
+}
+
+object studyNotification {
+    id = "ntf_009"
+    userId = "usr_001"
+    type = "STUDY_UPDATED"
+    title = "스터디 정보가 업데이트되었습니다"
+    content = "자바스크립트 심화 스터디의 모집 정원이 증가했습니다"
+    relatedEntityType = "STUDY"
+    relatedEntityId = "std_001"
+    priority = "MEDIUM"
+    createdAt = "2024-01-16T11:00:00Z"
+    readAt = null
+    isRead = false
+    channelCount = 2
+}
+
+object appNotification {
+    id = "ntf_010"
+    userId = "usr_001"
+    type = "APPLICATION_APPROVED"
+    title = "스터디 신청이 승인되었습니다"
+    content = "React 프로젝트 스터디 신청이 승인되었습니다. 환영합니다!"
+    relatedEntityType = "APPLICATION"
+    relatedEntityId = "app_002"
+    priority = "HIGH"
+    createdAt = "2024-01-16T11:30:00Z"
+    readAt = "2024-01-16T11:35:00Z"
+    isRead = true
+    channelCount = 3
+}
+
+object email {
+    id = "eml_001"
+    notificationId = "ntf_009"
+    recipientEmail = "user@example.com"
+    subject = "스터디 정보 업데이트 알림"
+    htmlContent = "<h2>스터디 정보가 업데이트되었습니다</h2>..."
+    textContent = "스터디 정보가 업데이트되었습니다..."
+    status = "SENT"
+    sentAt = "2024-01-16T11:00:05Z"
+    provider = "SendGrid"
+}
+
+object push {
+    id = "psh_001"
+    notificationId = "ntf_010"
+    deviceToken = "fcm_token_abc123"
+    title = "스터디 신청이 승인되었습니다"
+    body = "React 프로젝트 스터디 신청이 승인되었습니다"
+    dataType = "APPLICATION_APPROVED"
+    dataStudyId = "std_002"
+    dataApplicationId = "app_002"
+    status = "DELIVERED"
+    sentAt = "2024-01-16T11:30:02Z"
+    deliveredAt = "2024-01-16T11:30:03Z"
+}
+
+object template {
+    id = "tmpl_001"
+    type = "STUDY_UPDATED"
+    title = "스터디 정보가 업데이트되었습니다"
+    contentTemplate = "{{studyTitle}} 스터디의 {{changedField}}이(가) 변경되었습니다"
+    emailSubject = "{{studyTitle}} - 정보 업데이트"
+    pushTitle = "스터디 업데이트"
+    isActive = true
+    version = 2
+}
+
+object batch {
+    id = "btch_001"
+    type = "STUDY_UPDATE"
+    studyId = "std_001"
+    totalRecipients = 5
+    successCount = 4
+    failureCount = 1
+    createdAt = "2024-01-16T11:00:00Z"
+    completedAt = "2024-01-16T11:00:10Z"
+    status = "COMPLETED"
+}
+
+object summary {
+    userId = "usr_001"
+    totalUnread = 3
+    studyUpdatesUnread = 1
+    applicationsUnread = 1
+    systemUnread = 1
+    lastUpdated = "2024-01-16T11:30:00Z"
+    oldestUnread = "2024-01-15T09:00:00Z"
+}
+
+object preference {
+    userId = "usr_001"
+    emailEnabled = true
+    pushEnabled = true
+    inAppEnabled = true
+    quietHoursStart = "22:00"
+    quietHoursEnd = "08:00"
+    studyUpdatesEnabled = true
+    applicationsEnabled = true
+    systemEnabled = false
+    marketingEnabled = false
+}
+
+user -- studyNotification : receives
+user -- appNotification : receives
+studyNotification -- email : delivered_via
+appNotification -- push : delivered_via
+studyNotification -- template : generated_from
+batch -- studyNotification : contains
+user -- summary : summarized_for
+user -- preference : configured_by
+
+note top of user : 알림을 받는 사용자
+note top of studyNotification : 읽지 않은 스터디 업데이트 알림
+note top of appNotification : 읽은 신청 승인 알림
+note top of summary : 사용자의 미읽은 알림 요약
+
+@enduml

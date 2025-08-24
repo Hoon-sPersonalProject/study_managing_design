@@ -1,0 +1,134 @@
+@startuml
+title 신고 및 제재 객체 다이어그램
+
+object reporter {
+    id = "usr_004"
+    nickname = "concerned_member"
+    status = "ACTIVE"
+    reportsSubmitted = 2
+    credibilityScore = 0.8
+}
+
+object reported {
+    id = "usr_005"
+    nickname = "problematic_user"
+    status = "ACTIVE"
+    reportsReceived = 5
+    warningCount = 2
+    lastWarningAt = "2024-01-10T14:00:00Z"
+}
+
+object report {
+    id = "rpt_001"
+    reporterId = "usr_004"
+    reportedUserId = "usr_005"
+    type = "INAPPROPRIATE_BEHAVIOR"
+    category = "SPAM"
+    description = "스터디 채팅에서 지속적인 광고성 메시지 발송"
+    status = "PENDING"
+    priority = "MEDIUM"
+    submittedAt = "2024-01-15T21:00:00Z"
+    assignedTo = null
+}
+
+object evidence {
+    id = "evd_001"
+    reportId = "rpt_001"
+    type = "SCREENSHOT"
+    fileName = "spam_chat_screenshot.jpg"
+    fileUrl = "https://storage.com/evidence/evd_001.jpg"
+    uploadedAt = "2024-01-15T21:00:01Z"
+    verified = false
+}
+
+object moderator {
+    id = "usr_admin"
+    nickname = "moderator_01"
+    role = "MODERATOR"
+    permissions = ["REVIEW_REPORTS", "WARN_USER", "SUSPEND_USER"]
+    activeReports = 12
+    avgReviewTime = "4.2 hours"
+}
+
+object review {
+    id = "rev_001"
+    reportId = "rpt_001"
+    reviewerId = "usr_admin"
+    decision = "VIOLATION_CONFIRMED"
+    actionTaken = "WARNING_ISSUED"
+    reviewNotes = "스팸 행위 확인, 첫 번째 경고 발송"
+    reviewedAt = "2024-01-16T10:30:00Z"
+    reviewTime = "13.5 hours"
+}
+
+object warning {
+    id = "wrn_001"
+    userId = "usr_005"
+    reportId = "rpt_001"
+    issuedBy = "usr_admin"
+    type = "SPAM_WARNING"
+    message = "스터디 채팅에서의 광고성 메시지는 금지되어 있습니다."
+    issuedAt = "2024-01-16T10:30:00Z"
+    acknowledgmentRequired = true
+    acknowledgedAt = null
+}
+
+object history {
+    userId = "usr_005"
+    totalWarnings = 3
+    totalSuspensions = 0
+    totalBans = 0
+    lastSanctionId = "wrn_001"
+    escalationLevel = "WARNING"
+    nextSanctionType = "TEMPORARY_SUSPENSION"
+}
+
+object reporterNotification {
+    id = "ntf_007"
+    userId = "usr_004"
+    type = "REPORT_REVIEWED"
+    title = "신고가 처리되었습니다"
+    content = "제출하신 신고가 검토되어 경고 조치가 취해졌습니다"
+    relatedId = "rpt_001"
+    createdAt = "2024-01-16T10:30:01Z"
+}
+
+object warningNotification {
+    id = "ntf_008"
+    userId = "usr_005"
+    type = "WARNING_ISSUED"
+    title = "경고가 발송되었습니다"
+    content = "스팸 행위로 인한 경고입니다. 추가 위반 시 계정 정지될 수 있습니다"
+    relatedId = "wrn_001"
+    createdAt = "2024-01-16T10:30:01Z"
+    urgent = true
+}
+
+object audit {
+    id = "log_006"
+    action = "REPORT_REVIEWED_WARNING_ISSUED"
+    performedBy = "usr_admin"
+    targetUserId = "usr_005"
+    reportId = "rpt_001"
+    timestamp = "2024-01-16T10:30:00Z"
+    details = "Spam violation confirmed, first warning issued"
+}
+
+reporter -- report : submits
+reported -- report : reported_in
+report -- evidence : contains
+moderator -- review : performs
+report -- review : reviewed_by
+review -- warning : results_in
+reported -- warning : receives
+reported -- history : tracked_in
+reporter -- reporterNotification : receives
+reported -- warningNotification : receives
+review -- audit : logs
+
+note top of reporter : 신고를 제출한 사용자
+note top of reported : 신고 대상 사용자
+note top of review : 중재자의 신고 검토 결과
+note top of warning : 발급된 경고 조치
+
+@enduml

@@ -1,0 +1,116 @@
+@startuml
+title 스터디 검색 객체 다이어그램
+
+object query {
+    keyword = "JavaScript"
+    location = "서울"
+    tags = ["Programming", "Frontend"]
+    page = 1
+    size = 10
+    sortBy = "RELEVANCE"
+    maxMembersMin = 5
+    maxMembersMax = 10
+    status = "RECRUITING"
+}
+
+object result {
+    totalElements = 15
+    totalPages = 2
+    currentPage = 1
+    size = 10
+    hasNext = true
+    searchTime = 23
+    cacheHit = false
+}
+
+object study1 {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    description = "ES6+ 문법과 실전 프로젝트"
+    tags = ["JavaScript", "Frontend"]
+    maxMembers = 8
+    currentMembers = 3
+    location = "서울시 강남구"
+    status = "RECRUITING"
+    relevanceScore = 0.95
+}
+
+object study2 {
+    id = "std_002"
+    title = "리액트 프로젝트 스터디"
+    description = "React로 실제 서비스 개발"
+    tags = ["JavaScript", "React", "Frontend"]
+    maxMembers = 6
+    currentMembers = 4
+    location = "서울시 서초구"
+    status = "RECRUITING"
+    relevanceScore = 0.88
+}
+
+object study3 {
+    id = "std_003"
+    title = "풀스택 개발 스터디"
+    description = "JavaScript 기반 풀스택 개발"
+    tags = ["JavaScript", "Node.js", "Database"]
+    maxMembers = 10
+    currentMembers = 2
+    location = "서울시 마포구"
+    status = "RECRUITING"
+    relevanceScore = 0.82
+}
+
+object leader1 {
+    id = "usr_001"
+    nickname = "js_expert"
+    profileImageUrl = "https://storage.com/profile/usr_001.jpg"
+    rating = 4.8
+}
+
+object leader2 {
+    id = "usr_005"
+    nickname = "react_master"
+    profileImageUrl = "https://storage.com/profile/usr_005.jpg"
+    rating = 4.6
+}
+
+object cache {
+    key = "search_javascript_seoul_page1"
+    expiresAt = "2024-01-15T18:15:00Z"
+    hitCount = 0
+    createdAt = "2024-01-15T18:00:00Z"
+}
+
+object searchLog {
+    id = "sl_001"
+    userId = "usr_visitor"
+    query = "JavaScript"
+    location = "서울"
+    resultCount = 15
+    searchTime = 23
+    timestamp = "2024-01-15T18:00:00Z"
+}
+
+object detail {
+    studyId = "std_001"
+    viewCount = 127
+    applicationCount = 8
+    availableActions = ["APPLY", "SHARE", "BOOKMARK"]
+    userApplicationStatus = null
+}
+
+query -- result : produces
+result -- study1 : contains
+result -- study2 : contains
+result -- study3 : contains
+study1 -- leader1 : led_by
+study2 -- leader2 : led_by
+result -- cache : cached_as
+query -- searchLog : logs
+study1 -- detail : detailed_as
+
+note top of query : 사용자의 검색 조건
+note top of result : 검색 결과 목록
+note top of cache : 성능을 위한 캐시
+note top of detail : 상세보기에서의 추가 정보
+
+@enduml

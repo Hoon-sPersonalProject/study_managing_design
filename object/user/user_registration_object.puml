@@ -1,0 +1,72 @@
+@startuml
+title 사용자 회원가입 객체 다이어그램
+
+object user {
+    id = "usr_001"
+    email = "john@example.com"
+    password = "$2b$10$hashedPassword"
+    nickname = "john_study"
+    profileImageUrl = "https://storage.com/profile/usr_001.jpg"
+    status = "PENDING_VERIFICATION"
+    createdAt = "2024-01-15T10:30:00Z"
+    lastLoginAt = null
+    emailVerifiedAt = null
+}
+
+object token {
+    token = "vrf_abc123xyz789"
+    userId = "usr_001"
+    expiresAt = "2024-01-15T11:30:00Z"
+    isUsed = false
+}
+
+object notification {
+    id = "ntf_001"
+    userId = "usr_001"
+    type = "WELCOME"
+    title = "플랫폼에 오신 것을 환영합니다!"
+    content = "스터디 매니징 플랫폼 사용법 가이드"
+    isRead = false
+    createdAt = "2024-01-15T10:30:01Z"
+}
+
+object audit {
+    id = "log_001"
+    action = "USER_REGISTRATION"
+    userId = "usr_001"
+    ipAddress = "192.168.1.100"
+    userAgent = "Mozilla/5.0..."
+    timestamp = "2024-01-15T10:30:00Z"
+    details = "New user registration completed"
+}
+
+object image {
+    id = "img_001"
+    originalName = "profile.jpg"
+    fileName = "usr_001_profile_optimized.jpg"
+    size = 245760
+    mimeType = "image/jpeg"
+    storageUrl = "https://storage.com/profile/usr_001.jpg"
+    isOptimized = true
+}
+
+object validation {
+    isValid = true
+    errors = []
+    emailFormat = "VALID"
+    passwordStrength = "STRONG"
+    nicknameFormat = "VALID"
+}
+
+user -- token : verifies
+user -- notification : receives
+user -- audit : generates
+user -- image : uploads
+user -- validation : validates
+
+note top of user : 회원가입 중인 사용자
+note top of token : 이메일 인증을 위한 토큰
+note top of notification : 환영 알림
+note top of audit : 가입 이벤트 로그
+
+@enduml

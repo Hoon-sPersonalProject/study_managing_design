@@ -1,0 +1,124 @@
+@startuml
+title 스터디 정보 수정 객체 다이어그램
+
+object leader {
+    id = "usr_001"
+    nickname = "study_leader"
+    role = "USER"
+    permissions = ["MANAGE_OWN_STUDIES"]
+}
+
+object originalStudy {
+    id = "std_001"
+    title = "자바스크립트 기초 스터디"
+    description = "JavaScript 기본 문법 학습"
+    tags = ["JavaScript", "Beginner"]
+    maxMembers = 6
+    currentMembers = 4
+    location = "서울시 강남구"
+    status = "RECRUITING"
+    version = 1
+    lastModifiedAt = "2024-01-10T10:00:00Z"
+    coverImageUrl = "https://storage.com/cover/old_image.jpg"
+}
+
+object modRequest {
+    studyId = "std_001"
+    userId = "usr_001"
+    title = "자바스크립트 심화 스터디"
+    description = "ES6+ 문법과 실전 프로젝트를 통한 JavaScript 마스터"
+    tags = ["JavaScript", "Advanced", "ES6"]
+    maxMembers = 8
+    location = "서울시 강남구"
+    newCoverImage = "new_cover.jpg"
+    version = 1
+    requestedAt = "2024-01-15T19:00:00Z"
+}
+
+object modifiedStudy {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    description = "ES6+ 문법과 실전 프로젝트를 통한 JavaScript 마스터"
+    tags = ["JavaScript", "Advanced", "ES6"]
+    maxMembers = 8
+    currentMembers = 4
+    location = "서울시 강남구"
+    status = "RECRUITING"
+    version = 2
+    lastModifiedAt = "2024-01-15T19:00:00Z"
+    coverImageUrl = "https://storage.com/cover/std_001_v2.jpg"
+}
+
+object validation {
+    isValid = true
+    titleValid = true
+    descriptionValid = true
+    tagsValid = true
+    maxMembersValid = true
+    policyCompliant = true
+    businessRulesValid = true
+    conflictCheck = "PASSED"
+}
+
+object newImage {
+    id = "img_002"
+    originalName = "new_cover.jpg"
+    fileName = "std_001_cover_v2_optimized.jpg"
+    size = 512000
+    mimeType = "image/jpeg"
+    storageUrl = "https://storage.com/cover/std_001_v2.jpg"
+    isOptimized = true
+    uploadedAt = "2024-01-15T19:00:01Z"
+}
+
+object history {
+    id = "sch_001"
+    studyId = "std_001"
+    changedBy = "usr_001"
+    version = 2
+    oldTitle = "자바스크립트 기초 스터디"
+    newTitle = "자바스크립트 심화 스터디"
+    oldMaxMembers = 6
+    newMaxMembers = 8
+    changedAt = "2024-01-15T19:00:00Z"
+}
+
+object notification {
+    id = "ntf_004"
+    type = "STUDY_UPDATED"
+    title = "스터디 정보가 업데이트되었습니다"
+    content = "자바스크립트 심화 스터디 정보가 변경되었습니다"
+    recipientCount = 3
+    sentAt = "2024-01-15T19:00:02Z"
+}
+
+object indexUpdate {
+    studyId = "std_001"
+    action = "UPDATE"
+    updatedAt = "2024-01-15T19:00:03Z"
+    status = "COMPLETED"
+}
+
+object cacheInvalidation {
+    studyId = "std_001"
+    invalidatedKeys = 4
+    invalidatedAt = "2024-01-15T19:00:01Z"
+    status = "COMPLETED"
+}
+
+leader -- modRequest : submits
+originalStudy -- modRequest : modifies
+modRequest -- validation : validates
+validation -- modifiedStudy : produces
+modRequest -- newImage : uploads
+modifiedStudy -- history : records
+modifiedStudy -- notification : triggers
+modifiedStudy -- indexUpdate : updates
+modifiedStudy -- cacheInvalidation : invalidates
+
+note top of originalStudy : 수정 전 스터디 정보
+note top of modifiedStudy : 수정 후 스터디 정보
+note top of history : 변경 이력 추적
+note top of validation : 수정 요청 검증 결과
+
+@enduml

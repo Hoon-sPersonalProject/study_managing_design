@@ -1,0 +1,99 @@
+@startuml
+title 참여 상태 조회 객체 다이어그램
+
+object user {
+    id = "usr_003"
+    nickname = "active_member"
+    status = "ACTIVE"
+    studyParticipations = 3
+}
+
+object participationSummary {
+    userId = "usr_003"
+    totalApplications = 5
+    approvedApplications = 3
+    rejectedApplications = 1
+    pendingApplications = 1
+    activeStudies = 2
+    completedStudies = 1
+    leftStudies = 2
+}
+
+object activeStudy1 {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    status = "ACTIVE"
+    memberRole = "MEMBER"
+    joinedAt = "2024-01-10T09:00:00Z"
+    lastActivity = "2024-01-15T14:30:00Z"
+}
+
+object activeStudy2 {
+    id = "std_003"
+    title = "React 프로젝트 스터디"
+    status = "ACTIVE"
+    memberRole = "LEADER"
+    joinedAt = "2024-01-05T10:00:00Z"
+    lastActivity = "2024-01-16T11:00:00Z"
+}
+
+object pendingApplication {
+    id = "app_003"
+    studyId = "std_005"
+    studyTitle = "Node.js 백엔드 스터디"
+    status = "PENDING"
+    appliedAt = "2024-01-14T16:00:00Z"
+    reviewDeadline = "2024-01-17T16:00:00Z"
+}
+
+object completedStudy {
+    id = "std_002"
+    title = "HTML/CSS 기초 스터디"
+    status = "COMPLETED"
+    memberRole = "MEMBER"
+    joinedAt = "2023-12-01T09:00:00Z"
+    completedAt = "2023-12-31T18:00:00Z"
+    achievement = "COMPLETED"
+}
+
+object recentActivity {
+    id = "act_001"
+    userId = "usr_003"
+    type = "STUDY_JOINED"
+    studyId = "std_001"
+    timestamp = "2024-01-10T09:00:00Z"
+    description = "자바스크립트 심화 스터디에 참여했습니다"
+}
+
+object studyStatistics {
+    userId = "usr_003"
+    averageStudyDuration = "45 days"
+    studyCompletionRate = 0.67
+    leadershipExperience = 1
+    mostActiveCategory = "Programming"
+    totalStudyHours = 120
+}
+
+object applicationHistory {
+    userId = "usr_003"
+    applications = [pendingApplication]
+    averageApprovalTime = "2.1 days"
+    successRate = 0.75
+    lastApplicationDate = "2024-01-14T16:00:00Z"
+}
+
+user -- participationSummary : has
+participationSummary -- activeStudy1 : includes
+participationSummary -- activeStudy2 : includes
+participationSummary -- pendingApplication : tracks
+participationSummary -- completedStudy : records
+user -- recentActivity : generates
+user -- studyStatistics : analyzed_as
+user -- applicationHistory : tracked_in
+
+note top of user : 참여 상태를 조회하는 사용자
+note top of participationSummary : 전체 참여 요약 정보
+note top of studyStatistics : 사용자의 스터디 활동 통계
+note top of applicationHistory : 신청 이력 및 성공률
+
+@enduml

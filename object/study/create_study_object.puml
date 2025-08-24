@@ -1,0 +1,105 @@
+@startuml
+title 스터디 생성 객체 다이어그램
+
+object creator {
+    id = "usr_001"
+    email = "leader@example.com"
+    nickname = "study_leader"
+    status = "ACTIVE"
+    studyCreateQuota = 5
+    studiesCreated = 2
+}
+
+object study {
+    id = "std_001"
+    title = "자바스크립트 심화 스터디"
+    description = "ES6+ 문법과 실전 프로젝트를 통한 JavaScript 마스터"
+    tags = ["JavaScript", "Frontend", "React"]
+    maxMembers = 8
+    currentMembers = 1
+    location = "서울시 강남구"
+    status = "ACTIVE"
+    visibility = "PUBLIC"
+    createdAt = "2024-01-15T17:00:00Z"
+    leaderId = "usr_001"
+}
+
+object validation {
+    titleLength = "VALID"
+    descriptionLength = "VALID"
+    tagsCount = "VALID"
+    maxMembersRange = "VALID"
+    contentPolicy = "PASSED"
+    spamCheck = "PASSED"
+    businessRules = "PASSED"
+}
+
+object membership {
+    id = "mbr_001"
+    studyId = "std_001"
+    userId = "usr_001"
+    role = "LEADER"
+    status = "ACTIVE"
+    joinedAt = "2024-01-15T17:00:00Z"
+    permissions = ["MANAGE_STUDY", "MANAGE_MEMBERS", "DELETE_STUDY"]
+}
+
+object tag1 {
+    id = "tag_js"
+    name = "JavaScript"
+    category = "PROGRAMMING"
+    usageCount = 1247
+    isStandard = true
+}
+
+object tag2 {
+    id = "tag_fe"
+    name = "Frontend"
+    category = "PROGRAMMING"
+    usageCount = 892
+    isStandard = true
+}
+
+object notification {
+    id = "ntf_003"
+    userId = "usr_001"
+    type = "STUDY_CREATED"
+    title = "스터디가 성공적으로 생성되었습니다"
+    content = "자바스크립트 심화 스터디가 생성되었습니다"
+    createdAt = "2024-01-15T17:00:01Z"
+}
+
+object searchIndex {
+    studyId = "std_001"
+    title = "자바스크립트 심화 스터디"
+    description = "ES6+ 문법과 실전 프로젝트를 통한 JavaScript 마스터"
+    tags = ["JavaScript", "Frontend", "React"]
+    location = "서울시 강남구"
+    indexedAt = "2024-01-15T17:00:02Z"
+    searchScore = 0.95
+}
+
+object auditLog {
+    id = "log_004"
+    action = "STUDY_CREATED"
+    userId = "usr_001"
+    studyId = "std_001"
+    timestamp = "2024-01-15T17:00:00Z"
+    details = "New study created with title: 자바스크립트 심화 스터디"
+}
+
+creator -- study : creates
+study -- validation : validates
+study -- membership : generates
+study -- tag1 : tagged_with
+study -- tag2 : tagged_with
+study -- notification : triggers
+study -- searchIndex : indexed_in
+study -- auditLog : logs
+
+note top of creator : 스터디를 생성하는 사용자
+note top of study : 새로 생성된 스터디
+note top of membership : 리더의 멤버십
+note top of searchIndex : 검색을 위한 인덱스
+
+@enduml
