@@ -1,0 +1,62 @@
+@startuml
+' 사용자 관리 Use Case Diagram (관리자 콘솔 관점)
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+actor "시스템 관리자" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+
+rectangle "관리자 콘솔 - 사용자 관리" as AdminConsole {
+
+  usecase "사용자 검색/조회" as U1
+  usecase "계정 정지" as U2
+  usecase "계정 정지 해제" as U3
+  usecase "권한 부여/회수" as U4
+  usecase "계정 삭제(논리)" as U5
+
+  ' 공통(횡단) 유스케이스
+  usecase "권한/자격 검증" as UC_Authz
+  usecase "알림 발송" as UC_Notify
+  usecase "감사 로그 기록" as UC_Audit
+}
+
+' 관리자 → 주요 유스케이스
+Admin --> U1
+Admin --> U2
+Admin --> U3
+Admin --> U4
+Admin --> U5
+
+' 공통 include 연결
+U1 ..> UC_Authz : <<include>>
+U2 ..> UC_Authz : <<include>>
+U3 ..> UC_Authz : <<include>>
+U4 ..> UC_Authz : <<include>>
+U5 ..> UC_Authz : <<include>>
+
+U2 ..> UC_Audit : <<include>>
+U3 ..> UC_Audit : <<include>>
+U4 ..> UC_Audit : <<include>>
+U5 ..> UC_Audit : <<include>>
+
+U2 ..> UC_Notify : <<include>>
+U3 ..> UC_Notify : <<include>>
+U4 ..> UC_Notify : <<include>>
+U5 ..> UC_Notify : <<include>>
+
+' 외부 시스템과의 상호작용
+UC_Notify --> Noti
+UC_Audit --> Audit
+
+' 권한 요구는 include 대신 노트로 표기
+note right of AdminConsole
+«requires admin role»
+관리자 로그인 + 권한 검증 필요
+end note
+
+@enduml

@@ -1,0 +1,110 @@
+@startuml
+' 플랫폼/스터디 - 신고/제재 처리 Use Case Diagram
+
+skinparam packageStyle rectangle
+skinparam usecase {
+  BackgroundColor LightBlue
+  BorderColor DarkBlue
+}
+
+' === Actors ===
+actor "일반 회원(신고자)" as Reporter
+actor "피신고자(회원/리더)" as Reportee
+actor "스터디 리더(옵션)" as Leader
+actor "시스템 관리자" as Admin
+actor "알림 서비스" as Noti
+actor "감사 로그 수집기" as Audit
+actor "자동 탐지 엔진(옵션)" as Detektor
+actor "파일/증거 스토리지" as EvidenceStore
+actor "정책/규칙 엔진" as Policy
+
+' === System Boundary ===
+rectangle "신고/제재 처리" as Moderation {
+
+  ' --- 메인 UC ---
+  usecase "신고 접수" as UC_Report
+  usecase "신고 심사/판정" as UC_Review
+  usecase "제재 실행" as UC_Penalize
+  usecase "제재 해제/완화" as UC_Unpenalize
+  usecase "현황/이력 조회" as UC_View
+
+  ' --- 공통(항상 수행) ---
+  usecase "권한/자격 검증" as UC_Authz
+  usecase "정책/규칙 평가" as UC_Policy
+  usecase "증거 수집/보관" as UC_Evidence
+  usecase "감사 로그 기록" as UC_Audit
+  usecase "알림 발송" as UC_Notify
+
+  ' --- 조건부/선택(extend) ---
+  usecase "자동 필터 탐지 트리거" as UC_AutoDetect
+  usecase "임시 조치(뮤트/숨김)" as UC_TempAction
+  usecase "즉시 차단(심각 위반)" as UC_ImmediateBlock
+  usecase "누적 위반 가중" as UC_Strike
+  usecase "계정 정지/제한 연계" as UC_UserSuspend
+  usecase "스터디 강제 종료/리더 교체" as UC_ForceClose
+  usecase "이의제기(항소) 처리" as UC_Appeal
+  usecase "법적 보존/비공개 처리" as UC_LegalHold
+}
+
+' === 액터 연결 ===
+Reporter --> UC_Report
+'Leader  --> UC_Report  '리더도 신고 가능(운영 신고)
+Admin   --> UC_Review
+Admin   --> UC_Penalize
+Admin   --> UC_Unpenalize
+Admin   --> UC_View
+
+' 피신고자는 직접 실행자는 아니지만 통지 대상
+Reportee .. UC_Notify
+
+' === include: 공통 교차 관심사 ===
+UC_Report   ..> UC_Authz    : <<include>>
+UC_Report   ..> UC_Evidence : <<include>>
+UC_Report   ..> UC_Audit    : <<include>>
+UC_Report   ..> UC_Notify   : <<include>>
+
+UC_Review   ..> UC_Authz    : <<include>>
+UC_Review   ..> UC_Policy   : <<include>>
+UC_Review   ..> UC_Evidence : <<include>>
+UC_Review   ..> UC_Audit    : <<include>>
+
+UC_Penalize ..> UC_Authz    : <<include>>
+UC_Penalize ..> UC_Policy   : <<include>>
+UC_Penalize ..> UC_Audit    : <<include>>
+UC_Penalize ..> UC_Notify   : <<include>>
+
+UC_Unpenalize ..> UC_Authz  : <<include>>
+UC_Unpenalize ..> UC_Audit  : <<include>>
+UC_Unpenalize ..> UC_Notify : <<include>>
+
+UC_View ..> UC_Authz : <<include>>
+
+' === extend: 조건부/선택 흐름 ===
+UC_Report  ..> UC_AutoDetect    : <<extend>>  '자동 탐지로 신고 생성
+UC_Report  ..> UC_LegalHold     : <<extend>>  '법적 분쟁/보존 필요
+UC_Review  ..> UC_TempAction    : <<extend>>  '판정 전 임시 조치
+UC_Review  ..> UC_ImmediateBlock: <<extend>>  '심각 위반 즉시 차단
+UC_Penalize ..> UC_Strike       : <<extend>>  '누적 제재 가중치
+UC_Penalize ..> UC_UserSuspend  : <<extend>>  '계정 정지/제한 연계
+UC_Penalize ..> UC_ForceClose   : <<extend>>  '스터디 단위 제재
+UC_Unpenalize ..> UC_Appeal     : <<extend>>  '이의제기 승인 시
+
+' === 외부 시스템 연동 ===
+UC_AutoDetect --> Detektor
+UC_Evidence --> EvidenceStore
+UC_Policy --> Policy
+UC_Audit --> Audit
+UC_Notify --> Noti
+
+' === Notes ===
+note right of Moderation
+«requires auth»
+핵심 규칙:
+- 신고 유형: 스팸/욕설/불법/사기/저작권 등
+- 심각도·누적 기준에 따라 제재 수위 자동 제안(정책 엔진)
+- 제재 예: 경고, 콘텐츠 삭제, 뮤트, 스터디 제한, 계정 정지
+- 모든 단계는 증거 보관 및 감사 로그 필수
+- 이의제기 절차 지원, 법적 보존은 접근 제한
+end note
+
+@enduml
