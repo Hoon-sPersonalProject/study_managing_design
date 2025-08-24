@@ -70,6 +70,36 @@ package "Application Layer" {
         +sendNotification(): void
         +getNotifications(): List<Notification>
     }
+
+    SERVICE TagService <<Service>> {
+        +createTag(): Tag
+        +getAllTags(): List<Tag>
+        +addTagToStudy(): void
+    }
+
+    SERVICE ReviewService <<Service>> {
+        +writeReview(): Review
+        +getStudyReviews(): List<Review>
+        +updateReview(): void
+    }
+
+    SERVICE ScheduleService <<Service>> {
+        +createSchedule(): Schedule
+        +updateSchedule(): void
+        +getStudySchedules(): List<Schedule>
+    }
+
+    SERVICE AttendanceService <<Service>> {
+        +checkIn(): Attendance
+        +markAttendance(): void
+        +getAttendanceReport(): AttendanceReport
+    }
+
+    SERVICE AttachmentService <<Service>> {
+        +uploadFile(): Attachment
+        +downloadFile(): FileData
+        +deleteFile(): void
+    }
 }
 
 ' === 도메인 계층 ===
@@ -170,9 +200,14 @@ package "Domain Layer" {
         -id: Long
         -studyId: Long
         -title: String
+        -description: String
         -startTime: LocalDateTime
+        -endTime: LocalDateTime
+        -location: String
+        -createdBy: Long
         +create(): Schedule
         +update(): void
+        +cancel(): void
     }
 
     ENTITY Notice <<Entity>> {
@@ -180,8 +215,77 @@ package "Domain Layer" {
         -studyId: Long
         -title: String
         -content: String
+        -createdBy: Long
+        -isPinned: boolean
         +post(): Notice
         +update(): void
+        +pin(): void
+        +unpin(): void
+    }
+
+    ' === 태그 및 카테고리 도메인 ===
+    ENTITY Tag <<Entity>> {
+        -id: Long
+        -name: String
+        -color: String
+        +create(): Tag
+    }
+
+    ENTITY Category <<Entity>> {
+        -id: Long
+        -name: String
+        -description: String
+        +create(): Category
+    }
+
+    ENTITY StudyTag <<Entity>> {
+        -id: Long
+        -studyId: Long
+        -tagId: Long
+    }
+
+    ' === 리뷰 도메인 ===
+    ENTITY Review <<Entity>> {
+        -id: Long
+        -studyId: Long
+        -reviewerId: Long
+        -rating: Integer
+        -content: String
+        -createdAt: LocalDateTime
+        +write(): Review
+        +update(): void
+    }
+
+    ' === 출석 도메인 ===
+    ENTITY Attendance <<Entity>> {
+        -id: Long
+        -scheduleId: Long
+        -memberId: Long
+        -status: AttendanceStatus
+        -checkInTime: LocalDateTime
+        +checkIn(): void
+        +markAbsent(): void
+    }
+
+    enum AttendanceStatus {
+        PRESENT
+        ABSENT
+        LATE
+        EXCUSED
+    }
+
+    ' === 파일/첨부 도메인 ===
+    ENTITY Attachment <<Entity>> {
+        -id: Long
+        -fileName: String
+        -filePath: String
+        -fileSize: Long
+        -contentType: String
+        -uploadedBy: Long
+        -relatedType: String
+        -relatedId: Long
+        +upload(): Attachment
+        +delete(): void
     }
 }
 
@@ -208,6 +312,36 @@ package "Infrastructure Layer" {
     REPOSITORY NotificationRepository <<Repository>> {
         +save(): Notification
         +findByRecipientId(): List<Notification>
+    }
+
+    REPOSITORY TagRepository <<Repository>> {
+        +save(): Tag
+        +findAll(): List<Tag>
+        +findByName(): Optional<Tag>
+    }
+
+    REPOSITORY ReviewRepository <<Repository>> {
+        +save(): Review
+        +findByStudyId(): List<Review>
+        +findByReviewerId(): List<Review>
+    }
+
+    REPOSITORY ScheduleRepository <<Repository>> {
+        +save(): Schedule
+        +findByStudyId(): List<Schedule>
+        +findUpcomingSchedules(): List<Schedule>
+    }
+
+    REPOSITORY AttendanceRepository <<Repository>> {
+        +save(): Attendance
+        +findByScheduleId(): List<Attendance>
+        +findByMemberId(): List<Attendance>
+    }
+
+    REPOSITORY AttachmentRepository <<Repository>> {
+        +save(): Attachment
+        +findByRelatedId(): List<Attachment>
+        +deleteById(): void
     }
 }
 
@@ -255,6 +389,31 @@ User ||--o{ Application : "신청함"
 Study ||--o{ Schedule : "일정가짐"
 Study ||--o{ Notice : "공지가짐"
 User ||--o{ Notification : "받음"
+
+' 새로운 도메인 관계
+Study ||--o{ StudyTag : "태그가짐"
+Tag ||--o{ StudyTag : "적용됨"
+Study ||--o{ Review : "리뷰받음"
+User ||--o{ Review : "리뷰작성"
+Schedule ||--o{ Attendance : "출석체크"
+StudyMember ||--o{ Attendance : "출석"
+Study ||--o{ Attachment : "파일가짐"
+Notice ||--o{ Attachment : "첨부파일"
+User ||--o{ Attachment : "업로드"
+
+' 새로운 서비스 관계
+TagService ..> Tag : manipulates
+ReviewService ..> Review : manipulates
+ScheduleService ..> Schedule : manipulates
+AttendanceService ..> Attendance : manipulates
+AttachmentService ..> Attachment : manipulates
+
+' 새로운 리포지토리 관계
+TagService ..> TagRepository : uses
+ReviewService ..> ReviewRepository : uses
+ScheduleService ..> ScheduleRepository : uses
+AttendanceService ..> AttendanceRepository : uses
+AttachmentService ..> AttachmentRepository : uses
 
 ' 값 객체 사용
 StudyService ..> SearchCriteria : uses

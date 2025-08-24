@@ -13,7 +13,6 @@ actor "스터디 리더" as Leader
 actor "시스템 관리자(옵션)" as Admin
 actor "알림 서비스" as Noti
 actor "감사 로그 수집기" as Audit
-actor "결제 게이트웨이(옵션)" as Pay
 
 ' === System Boundary ===
 rectangle "스터디 운영 - 스터디 탈퇴" as LeaveStudy {

@@ -1,0 +1,128 @@
+@startuml missing_entities
+
+' 누락된 엔티티들 추가
+class StudySchedule {
+  +id: Long
+  +studyId: Long
+  +title: String
+  +description: String
+  +scheduledDate: Date
+  +startTime: Time
+  +endTime: Time
+  +location: String
+  +isOnline: Boolean
+  +meetingLink: String
+  +maxAttendees: Integer
+  +status: ScheduleStatus
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+enum ScheduleStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+class StudyMaterial {
+  +id: Long
+  +studyId: Long
+  +uploaderId: Long
+  +title: String
+  +description: String
+  +filePath: String
+  +fileSize: Long
+  +fileType: String
+  +downloadCount: Integer
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+class StudyProgress {
+  +id: Long
+  +studyId: Long
+  +userId: Long
+  +progressPercentage: Float
+  +completedTasks: Integer
+  +totalTasks: Integer
+  +lastUpdated: Date
+}
+
+class TaskAssignment {
+  +id: Long
+  +studyId: Long
+  +assignerId: Long
+  +assigneeId: Long
+  +title: String
+  +description: String
+  +dueDate: Date
+  +priority: TaskPriority
+  +status: TaskStatus
+  +createdAt: Date
+  +completedAt: Date
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TaskStatus {
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+}
+
+class StudyForum {
+  +id: Long
+  +studyId: Long
+  +authorId: Long
+  +title: String
+  +content: String
+  +postType: PostType
+  +isAnnouncement: Boolean
+  +isPinned: Boolean
+  +viewCount: Integer
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+enum PostType {
+  DISCUSSION
+  QUESTION
+  ANNOUNCEMENT
+  RESOURCE
+}
+
+class ForumComment {
+  +id: Long
+  +forumId: Long
+  +authorId: Long
+  +parentCommentId: Long
+  +content: String
+  +isDeleted: Boolean
+  +createdAt: Date
+  +updatedAt: Date
+}
+
+' 관계 정의
+Study ||--o{ StudySchedule
+Study ||--o{ StudyMaterial
+Study ||--o{ StudyProgress
+Study ||--o{ TaskAssignment
+Study ||--o{ StudyForum
+
+User ||--o{ StudyMaterial : uploads
+User ||--o{ StudyProgress : tracks
+User ||--o{ TaskAssignment : assigns/receives
+User ||--o{ StudyForum : creates
+User ||--o{ ForumComment : writes
+
+StudyForum ||--o{ ForumComment
+ForumComment ||--o{ ForumComment : replies
+
+@enduml

@@ -12,7 +12,6 @@ actor "일반 회원(신청자)" as User
 actor "스터디 리더" as Leader
 actor "알림 서비스" as Noti
 actor "감사 로그 수집기" as Audit
-actor "결제 게이트웨이(옵션)" as Pay
 actor "본인인증 서비스(옵션)" as Verify
 
 ' === System Boundary ===

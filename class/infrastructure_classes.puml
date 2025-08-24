@@ -161,11 +161,6 @@ EXTERNAL OAuthProvider <<External>> {
     +getUserInfo(accessToken: String): OAuthUserInfo
 }
 
-EXTERNAL PaymentGateway <<External>> {
-    +processPayment(paymentRequest: PaymentRequest): PaymentResult
-    +refund(transactionId: String, amount: BigDecimal): RefundResult
-    +getPaymentStatus(transactionId: String): PaymentStatus
-}
 
 EXTERNAL SMSService <<External>> {
     +sendSMS(phoneNumber: String, message: String): SMSResult
