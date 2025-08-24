@@ -1,0 +1,96 @@
+@startuml
+title 사용자 회원가입 활동 다이어그램
+
+start
+
+:회원가입 요청 수신;
+note right: 이메일, 비밀번호, 닉네임, 프로필 이미지
+
+:입력값 유효성 검증;
+note right: 필수 필드, 이메일 형식, 비밀번호 강도, 닉네임 형식
+
+if (유효성 검증 통과?) then (아니오)
+  :400 Bad Request 응답;
+  stop
+endif
+
+:이메일 중복 확인;
+
+if (이미 존재하는 이메일?) then (예)
+  :409 Email Already Exists 응답;
+  stop
+endif
+
+:닉네임 중복 확인;
+
+if (중복 닉네임?) then (예)
+  :409 Nickname Already Exists 응답;
+  stop
+endif
+
+:비밀번호 암호화;
+note right: BCrypt 해시 알고리즘 사용
+
+:사용자 도메인 객체 생성;
+note right: ID 생성, 상태 설정, 생성일시 설정
+
+:데이터베이스에 사용자 저장;
+
+if (이메일 인증 정책 적용?) then (예)
+  fork
+    :이메일 인증 토큰 생성;
+    :캐시에 토큰 저장;
+    :사용자 상태를 PENDING_VERIFICATION으로 설정;
+  fork again
+    :인증 이메일 발송;
+    note right: 인증 링크 포함
+  end fork
+else (아니오)
+  :사용자 상태를 ACTIVE로 설정;
+endif
+
+fork
+  :환영 알림 발송;
+  note right: 플랫폼 사용법 가이드
+fork again
+  :감사 로그 기록;
+  note right: 회원가입 이벤트 로그
+end fork
+
+:201 회원가입 완료 응답;
+
+if (프로필 이미지 업로드?) then (예)
+  :이미지 파일 검증;
+  note right: 크기, 형식, 악성파일 검사
+
+  if (유효한 이미지?) then (아니오)
+    :이미지 업로드 실패 응답;
+    stop
+  endif
+
+  :이미지 리사이징 및 최적화;
+  :클라우드 스토리지 업로드;
+  :프로필 이미지 URL 업데이트;
+  :200 이미지 업로드 완료;
+endif
+
+if (이메일 인증 필요?) then (예)
+  :이메일 인증 링크 클릭 대기;
+
+  :인증 토큰 유효성 검증;
+
+  if (유효한 토큰?) then (아니오)
+    :400 Invalid Token 응답;
+    stop
+  endif
+
+  :사용자 상태를 ACTIVE로 변경;
+  :이메일 인증 완료 시간 설정;
+  :인증 토큰 삭제;
+  :인증 완료 알림 발송;
+  :200 인증 완료 응답;
+endif
+
+stop
+
+@enduml

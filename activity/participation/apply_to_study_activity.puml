@@ -1,0 +1,88 @@
+@startuml
+title 스터디 참여 신청 활동 다이어그램
+
+start
+
+:스터디 신청 요청;
+note right: 스터디 ID, 신청 메시지
+
+:요청 데이터 검증;
+
+if (유효한 요청?) then (아니오)
+  :400 Bad Request 응답;
+  stop
+endif
+
+:스터디 존재 확인;
+
+if (스터디 존재?) then (아니오)
+  :404 Study Not Found 응답;
+  stop
+endif
+
+:스터디 신청 가능 상태 확인;
+
+if (모집 중?) then (아니오)
+  :400 Not Recruiting 응답;
+  stop
+endif
+
+:정원 확인;
+
+if (자리 있음?) then (아니오)
+  :400 Study Full 응답;
+  stop
+endif
+
+:중복 신청 확인;
+
+if (이미 신청함?) then (예)
+  :409 Already Applied 응답;
+  stop
+endif
+
+:이미 멤버인지 확인;
+
+if (이미 멤버?) then (예)
+  :409 Already Member 응답;
+  stop
+endif
+
+:차단 관계 확인;
+
+if (차단된 사용자?) then (예)
+  :403 Blocked User 응답;
+  stop
+endif
+
+:신청 레코드 생성;
+
+if (자동 승인 설정?) then (예)
+  :즉시 멤버로 승인;
+  :멤버십 생성;
+  :스터디 멤버 수 증가;
+
+  fork
+    :신청자에게 승인 알림;
+  fork again
+    :리더에게 새 멤버 알림;
+  end fork
+
+  :201 자동 승인 완료 응답;
+else (아니오)
+  :대기 상태로 신청 저장;
+
+  fork
+    :신청자에게 접수 확인 알림;
+  fork again
+    :리더에게 새 신청 알림;
+  end fork
+
+  :201 신청 접수 완료 응답;
+endif
+
+:신청 감사 로그 기록;
+
+stop
+
+@enduml

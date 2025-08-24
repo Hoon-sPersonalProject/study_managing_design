@@ -1,0 +1,53 @@
+@startuml
+title 스터디 탈퇴 활동 다이어그램
+
+start
+
+:스터디 탈퇴 요청;
+note right: 스터디 ID, 탈퇴 사유
+
+:멤버십 존재 확인;
+
+if (멤버가 맞음?) then (아니오)
+  :400 Not a Member 응답;
+  stop
+endif
+
+:리더 탈퇴 확인;
+
+if (리더가 탈퇴?) then (예)
+  :리더 권한 위임 확인;
+
+  if (위임할 멤버 존재?) then (아니오)
+    :스터디 종료 처리;
+    :모든 멤버에게 종료 알림;
+  else (예)
+    :새 리더 지정;
+    :리더 변경 알림 발송;
+  endif
+endif
+
+:멤버십 삭제;
+
+:스터디 멤버 수 감소;
+
+if (진행 중인 활동 있음?) then (예)
+  :활동 참여 상태 정리;
+endif
+
+fork
+  :탈퇴자에게 탈퇴 완료 알림;
+fork again
+  :리더에게 탈퇴 알림;
+fork again
+  :멤버들에게 탈퇴 알림;
+  note right: 설정에 따라
+end fork
+
+:탈퇴 감사 로그 기록;
+
+:200 탈퇴 완료 응답;
+
+stop
+
+@enduml

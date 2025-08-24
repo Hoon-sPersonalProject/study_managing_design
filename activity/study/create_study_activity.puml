@@ -1,0 +1,68 @@
+@startuml
+title 스터디 생성 활동 다이어그램
+
+start
+
+:스터디 생성 요청 수신;
+note right: 제목, 설명, 태그, 정원 등
+
+:요청 데이터 유효성 검증;
+note right: 필수 필드, 길이 제한
+
+if (유효성 검증 통과?) then (아니오)
+  :400 Bad Request 응답;
+  stop
+endif
+
+:사용자 권한 검증;
+
+if (생성 권한 있음?) then (아니오)
+  :403 Permission Denied 응답;
+  stop
+endif
+
+:생성 한도 확인;
+
+if (생성 한도 초과?) then (예)
+  :429 Quota Exceeded 응답;
+  stop
+endif
+
+:내용 정책 검증;
+note right: 금지어, 스팸 패턴
+
+if (정책 위반?) then (예)
+  :400 Policy Violation 응답;
+  stop
+endif
+
+:스터디 도메인 객체 생성;
+
+:비즈니스 규칙 검증;
+note right: 정원, 태그, 공개범위
+
+if (비즈니스 규칙 통과?) then (아니오)
+  :400 Business Rule Violation 응답;
+  stop
+endif
+
+:데이터 표준화;
+note right: 태그 표준화, 지역 정규화
+
+:데이터베이스에 스터디 저장;
+
+:리더 멤버십 생성;
+
+fork
+  :검색 인덱스에 스터디 등록;
+fork again
+  :스터디 생성 알림 발송;
+fork again
+  :생성 감사 로그 기록;
+end fork
+
+:201 스터디 생성 완료 응답;
+
+stop
+
+@enduml

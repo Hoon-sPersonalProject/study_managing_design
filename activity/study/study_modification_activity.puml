@@ -1,0 +1,122 @@
+@startuml
+title 스터디 정보 수정 활동 다이어그램
+
+|#LightBlue|수정 페이지 접근|
+start
+
+:수정 페이지 요청;
+
+:수정 권한 검증;
+
+if (스터디 리더?) then (아니오)
+  :403 Access Denied 응답;
+  stop
+endif
+
+:스터디 정보 조회;
+
+if (스터디 존재?) then (아니오)
+  :404 Not Found 응답;
+  stop
+endif
+
+:200 수정 폼 데이터 응답;
+
+|#LightGreen|정보 수정|
+:수정 요청 수신;
+
+:요청 데이터 검증;
+
+if (유효성 검증 통과?) then (아니오)
+  :400 Bad Request 응답;
+  stop
+endif
+
+:수정 권한 재검증;
+
+:현재 스터디 상태 조회;
+
+:동시 수정 충돌 검증;
+
+if (다른 사용자가 먼저 수정?) then (예)
+  :409 Conflict 응답;
+  stop
+endif
+
+:내용 정책 검증;
+
+if (정책 위반?) then (예)
+  :400 Policy Violation 응답;
+  stop
+endif
+
+:비즈니스 규칙 검증;
+
+if (현재 멤버 수보다 적은 정원?) then (예)
+  :400 Invalid Limit 응답;
+  stop
+endif
+
+:민감 필드 변경 확인;
+
+if (관리자 승인 필요?) then (예)
+  :승인 요청 생성;
+  :202 Approval Required 응답;
+  stop
+endif
+
+if (새 커버 이미지?) then (예)
+  :이미지 파일 검증;
+
+  if (유효한 이미지?) then (아니오)
+    :400 Invalid Image 응답;
+    stop
+  endif
+
+  :이미지 리사이징 및 최적화;
+  :클라우드 스토리지 업로드;
+  :기존 이미지 삭제;
+endif
+
+:데이터 표준화;
+:스터디 정보 업데이트;
+
+fork
+  :검색 인덱스 갱신;
+fork again
+  :캐시 무효화;
+fork again
+  if (중요한 변경?) then (예)
+    :멤버들에게 변경 알림 발송;
+  endif
+fork again
+  :수정 감사 로그 기록;
+fork again
+  :변경 이력 저장;
+end fork
+
+:200 수정 완료 응답;
+
+|#LightYellow|변경 이력 조회|
+:변경 이력 요청;
+
+:이력 조회 권한 검증;
+
+:변경 이력 조회;
+
+:200 변경 이력 응답;
+
+|#LightCoral|충돌 해결|
+if (버전 충돌 발생?) then (예)
+  :충돌 해결 뷰 요청;
+  :충돌 내용 분석;
+  :200 충돌 해결 정보 응답;
+
+  :충돌 해결 방안 제출;
+  :해결된 변경사항 적용;
+  :200 충돌 해결 완료;
+endif
+
+stop
+
+@enduml
