@@ -57,10 +57,10 @@ UC_Edit ..> UC_Versioning    : <<extend>>     '이력 조회/복구 시
 UC_Edit ..> UC_ScheduleNotify: <<extend>>     '일정 수정 시 참가자 공지
 
 ' === 외부 시스템 연동 ===
-Storage  <-- UC_Upload
-Audit    <-- UC_Audit
-Noti     <-- UC_Notify
-SearchIdx <-- UC_Reindex
+UC_Upload --> Storage
+UC_Audit --> Audit
+UC_Notify --> Noti
+UC_Reindex --> SearchIdx
 
 ' === Notes ===
 note right of UC_Edit

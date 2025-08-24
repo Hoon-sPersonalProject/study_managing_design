@@ -121,11 +121,11 @@ UC_NEdit ..> UC_Upload : <<extend>>
 UC_NEdit ..> UC_Mention : <<extend>>
 
 ' === 외부 시스템 연동 ===
-Noti <-- UC_Notify
-Audit <-- UC_Audit
-Storage <-- UC_Upload
-Calendar <-- UC_CalSync
-SearchIdx <-- UC_Reindex
+UC_Notify --> Noti
+UC_Audit --> Audit
+UC_Upload --> Storage
+UC_CalSync --> Calendar
+UC_Reindex --> SearchIdx
 
 ' === Notes ===
 note right of SchedNotice

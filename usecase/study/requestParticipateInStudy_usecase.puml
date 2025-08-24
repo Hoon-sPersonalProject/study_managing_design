@@ -59,10 +59,10 @@ UC_Apply ..> UC_Waitlist      : <<extend>>   '정원 초과 시
 UC_Apply ..> UC_Cancel        : <<extend>>   '대기 상태에서만 취소 가능
 
 ' === 외부 시스템 연동 ===
-Audit <-- UC_Audit
-Noti  <-- UC_Notify
-Pay   <-- UC_Payment
-Verify <-- UC_Verify
+UC_Audit --> Audit
+UC_Notify --> Noti
+UC_Payment --> Pay
+UC_Verify --> Verify
 
 ' === Notes ===
 note right of UC_Apply

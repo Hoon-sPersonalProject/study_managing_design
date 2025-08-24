@@ -55,10 +55,10 @@ UC_Create ..> UC_Draft        : <<extend>>
 UC_Create ..> UC_AdminApprove : <<extend>>
 
 ' === 외부 시스템 연동 ===
-Storage <-- UC_Upload
-Noti    <-- UC_Notify
-Audit   <-- UC_Audit
-SearchIdx <-- UC_Reindex
+UC_Upload --> Storage
+UC_Notify --> Noti
+UC_Audit --> Audit
+UC_Reindex --> SearchIdx
 
 ' === Notes ===
 note right of UC_Create

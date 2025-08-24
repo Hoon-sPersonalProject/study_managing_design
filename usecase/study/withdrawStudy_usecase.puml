@@ -60,9 +60,9 @@ UC_Leave ..> UC_AutoClose        : <<extend>>   '마지막 멤버 탈퇴
 UC_Leave ..> UC_Feedback         : <<extend>>   '선택적 설문/사유 입력
 
 ' === 외부 시스템 연동 ===
-Audit <-- UC_Audit
-Noti  <-- UC_Notify
-Pay   <-- UC_Refund
+UC_Audit --> Audit
+UC_Notify --> Noti
+UC_Refund --> Pay
 
 ' === Notes ===
 note right of UC_Leave
